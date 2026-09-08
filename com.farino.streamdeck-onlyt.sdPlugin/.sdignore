@@ -1,0 +1,8 @@
+# Files excluded from the packaged .streamDeckPlugin bundle.
+
+# Runtime logs
+logs/
+
+# Source maps
+*.map
+bin/*.map

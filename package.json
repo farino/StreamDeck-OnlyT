@@ -1,0 +1,37 @@
+{
+	"name": "com.farino.streamdeck-onlyt",
+	"version": "1.0.0",
+	"description": "Elgato Stream Deck plugin to control the OnlyT meeting timer.",
+	"author": "Farino",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/farino/StreamDeck-OnlyT.git"
+	},
+	"bugs": {
+		"url": "https://github.com/farino/StreamDeck-OnlyT/issues"
+	},
+	"homepage": "https://github.com/farino/StreamDeck-OnlyT#readme",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "rollup -c",
+		"watch": "rollup -c -w --watch.onEnd=\"streamdeck restart com.farino.streamdeck-onlyt\"",
+		"icons": "node generate-icons.mjs",
+		"validate": "streamdeck validate com.farino.streamdeck-onlyt.sdPlugin",
+		"pack": "streamdeck pack com.farino.streamdeck-onlyt.sdPlugin"
+	},
+	"dependencies": {
+		"@elgato/streamdeck": "^2.0.0"
+	},
+	"devDependencies": {
+		"@rollup/plugin-commonjs": "^28.0.0",
+		"@rollup/plugin-node-resolve": "^16.0.0",
+		"@rollup/plugin-typescript": "^12.1.0",
+		"@types/node": "^22.0.0",
+		"rollup": "^4.28.0",
+		"sharp": "^0.33.5",
+		"tslib": "^2.8.0",
+		"typescript": "^5.7.0"
+	}
+}

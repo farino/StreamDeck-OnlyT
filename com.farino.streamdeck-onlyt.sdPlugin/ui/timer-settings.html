@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<title>OnlyT Timer Settings</title>
+	<style>
+		:root {
+			--bg: #2d2d2d;
+			--surface: #3c3c3c;
+			--border: #555;
+			--text: #ddd;
+			--text-muted: #999;
+			--accent: #0078d4;
+			--input-bg: #1e1e1e;
+		}
+
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
+
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			font-size: 12px;
+			color: var(--text);
+			background: var(--bg);
+			padding: 12px;
+		}
+
+		.sdpi-wrapper {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.sdpi-item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		.sdpi-item label {
+			flex: 0 0 80px;
+			text-align: right;
+			color: var(--text-muted);
+			font-size: 11px;
+		}
+
+		.sdpi-item input {
+			flex: 1;
+			background: var(--input-bg);
+			border: 1px solid var(--border);
+			border-radius: 4px;
+			color: var(--text);
+			padding: 6px 8px;
+			font-size: 12px;
+			outline: none;
+		}
+
+		.sdpi-item input:focus {
+			border-color: var(--accent);
+		}
+
+		.sdpi-item input::placeholder {
+			color: var(--text-muted);
+		}
+
+		.sdpi-heading {
+			font-size: 11px;
+			font-weight: 600;
+			color: var(--text-muted);
+			text-transform: uppercase;
+			letter-spacing: 0.5px;
+			padding-bottom: 4px;
+			border-bottom: 1px solid var(--border);
+		}
+
+		.sdpi-hint {
+			font-size: 10px;
+			color: var(--text-muted);
+			padding-left: 88px;
+			margin-top: -6px;
+		}
+
+		.sdpi-status {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			padding: 8px;
+			background: var(--surface);
+			border-radius: 4px;
+			font-size: 11px;
+		}
+
+		.status-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: #636e72;
+		}
+
+		.status-dot.online {
+			background: #00b894;
+		}
+
+		.status-dot.offline {
+			background: #e74c3c;
+		}
+
+		.sdpi-footer {
+			font-size: 11px;
+			color: var(--text-muted);
+			margin-top: 8px;
+			padding-top: 8px;
+			border-top: 1px solid var(--border);
+			line-height: 1.4;
+			text-align: center;
+		}
+
+		.sdpi-footer a {
+			color: var(--accent);
+			text-decoration: none;
+		}
+
+		.sdpi-footer a:hover {
+			text-decoration: underline;
+		}
+	</style>
+</head>
+<body>
+	<div class="sdpi-wrapper">
+		<div class="sdpi-heading">OnlyT Connection</div>
+
+		<div class="sdpi-item">
+			<label for="host">Host</label>
+			<input type="text" id="host" placeholder="localhost" />
+		</div>
+		<div class="sdpi-hint">IP address or hostname of the OnlyT machine</div>
+
+		<div class="sdpi-item">
+			<label for="port">Port</label>
+			<input type="number" id="port" min="8096" max="8224" placeholder="8096" />
+		</div>
+		<div class="sdpi-hint">Default: 8096 (valid range: 8096-8224)</div>
+
+		<div class="sdpi-item">
+			<label for="apiCode">API Code</label>
+			<input type="text" id="apiCode" placeholder="Optional" />
+		</div>
+		<div class="sdpi-hint">Only needed if OnlyT has an API code configured</div>
+
+		<div class="sdpi-status" id="connectionStatus">
+			<span class="status-dot" id="statusDot"></span>
+			<span id="statusText">Checking connection...</span>
+		</div>
+
+		<div class="sdpi-footer">
+			Third-party plugin for
+			<a href="https://github.com/AntonyCorbett/OnlyT" target="_blank">OnlyT</a>
+			by Antony Corbett (MIT). Not affiliated with OnlyT.
+		</div>
+	</div>
+
+	<script>
+		const $SD = window.$SD;
+		let uuid = "";
+		let settings = { host: "localhost", port: 8096, apiCode: "" };
+
+		/**
+		 * Connect to Stream Deck property inspector API.
+		 */
+		function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo, inActionInfo) {
+			uuid = inPropertyInspectorUUID;
+
+			const actionInfo = JSON.parse(inActionInfo);
+			if (actionInfo.payload && actionInfo.payload.settings) {
+				settings = { ...settings, ...actionInfo.payload.settings };
+			}
+
+			populateFields();
+
+			const ws = new WebSocket("ws://127.0.0.1:" + inPort);
+
+			ws.onopen = function () {
+				ws.send(JSON.stringify({
+					event: inRegisterEvent,
+					uuid: inPropertyInspectorUUID,
+				}));
+			};
+
+			ws.onmessage = function (evt) {
+				const data = JSON.parse(evt.data);
+				if (data.event === "didReceiveSettings" && data.payload && data.payload.settings) {
+					settings = { ...settings, ...data.payload.settings };
+					populateFields();
+				}
+			};
+
+			window._ws = ws;
+
+			document.getElementById("host").addEventListener("change", onFieldChanged);
+			document.getElementById("port").addEventListener("change", onFieldChanged);
+			document.getElementById("apiCode").addEventListener("change", onFieldChanged);
+
+			testConnection();
+		}
+
+		function populateFields() {
+			document.getElementById("host").value = settings.host || "";
+			document.getElementById("port").value = settings.port || 8096;
+			document.getElementById("apiCode").value = settings.apiCode || "";
+		}
+
+		function onFieldChanged() {
+			settings.host = document.getElementById("host").value || "localhost";
+			settings.port = parseInt(document.getElementById("port").value, 10) || 8096;
+			settings.apiCode = document.getElementById("apiCode").value || "";
+
+			if (window._ws && window._ws.readyState === WebSocket.OPEN) {
+				window._ws.send(JSON.stringify({
+					event: "setSettings",
+					context: uuid,
+					payload: settings,
+				}));
+			}
+
+			testConnection();
+		}
+
+		function testConnection() {
+			const dot = document.getElementById("statusDot");
+			const text = document.getElementById("statusText");
+			const host = settings.host || "localhost";
+			const port = settings.port || 8096;
+
+			dot.className = "status-dot";
+			text.textContent = "Checking connection...";
+
+			fetch("http://" + host + ":" + port + "/api/v4/system/", {
+				method: "GET",
+				headers: settings.apiCode ? { "ApiCode": settings.apiCode } : {},
+			})
+			.then(function (res) {
+				if (!res.ok) throw new Error("HTTP " + res.status);
+				return res.json();
+			})
+			.then(function (data) {
+				dot.className = "status-dot online";
+				text.textContent = "Connected — OnlyT v" + (data.onlyTVersion || "?");
+			})
+			.catch(function () {
+				dot.className = "status-dot offline";
+				text.textContent = "Cannot reach OnlyT at " + host + ":" + port;
+			});
+		}
+	</script>
+</body>
+</html>

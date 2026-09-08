@@ -1,0 +1,44 @@
+{
+	"$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+	"UUID": "com.farino.streamdeck-onlyt",
+	"Name": "Meeting Timer for OnlyT",
+	"Version": "1.0.0.0",
+	"Author": "Farino",
+	"URL": "https://github.com/farino/StreamDeck-OnlyT/",
+	"Description": "Control the OnlyT meeting timer from your Stream Deck. Start, stop, and monitor countdown timers with live colour-coded status. Third-party plugin - not affiliated with OnlyT.",
+	"Category": "Meeting Timer for OnlyT",
+	"CategoryIcon": "imgs/plugin/category-icon",
+	"CodePath": "bin/plugin.js",
+	"Icon": "imgs/plugin/marketplace",
+	"SDKVersion": 2,
+	"Software": {
+		"MinimumVersion": "6.5"
+	},
+	"OS": [
+		{
+			"Platform": "windows",
+			"MinimumVersion": "10"
+		}
+	],
+	"Nodejs": {
+		"Version": "20",
+		"Debug": "disabled"
+	},
+	"Actions": [
+		{
+			"Name": "Timer Control",
+			"UUID": "com.farino.streamdeck-onlyt.timer-control",
+			"Icon": "imgs/actions/timer/icon",
+			"Tooltip": "Start and stop OnlyT meeting timers. Shows countdown, talk name, and colour-coded status.",
+			"Controllers": ["Keypad"],
+			"PropertyInspectorPath": "ui/timer-settings.html",
+			"States": [
+				{
+					"Image": "imgs/actions/timer/key",
+					"TitleAlignment": "middle",
+					"Title": ""
+				}
+			]
+		}
+	]
+}
