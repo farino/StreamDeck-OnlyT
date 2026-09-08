@@ -23,24 +23,23 @@ import {
 	parseTimeSpan,
 } from "../types";
 
-const POLL_INTERVAL_MS = 1000;
-const TICK_INTERVAL_MS = 100;
+const POLL_INTERVAL_MS = 200;
 
 /**
  * Stream Deck action that controls the OnlyT meeting timer.
- * Polls the OnlyT REST API for authoritative state, and locally ticks
- * between polls so the displayed countdown flips at the same instant
- * as OnlyT's own display (rather than lagging up to one poll interval).
+ * Polls the OnlyT REST API at 5 Hz so the displayed countdown is always
+ * within ~200 ms of OnlyT's own display (and never ahead of it, since
+ * the value comes straight from the server rather than being projected).
+ * Re-renders the key only when the displayed content actually changes,
+ * to keep the Stream Deck update rate low.
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.timer-control" })
 export class TimerControl extends SingletonAction<TimerSettings> {
 	private client: OnlyTClient | null = null;
 	private pollTimer: NodeJS.Timeout | null = null;
-	private tickTimer: NodeJS.Timeout | null = null;
 	private cachedState: ParsedTimerState | null = null;
 	private isOnline = false;
-	private lastPollAt = 0;
-	private lastRenderedRemainingSecs = Number.MAX_SAFE_INTEGER;
+	private lastRenderedSvg = "";
 
 	override async onWillAppear(ev: WillAppearEvent<TimerSettings>): Promise<void> {
 		streamDeck.logger.info("onWillAppear fired");
@@ -51,6 +50,7 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 		this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
 		this.cachedState = null;
 		this.isOnline = false;
+		this.lastRenderedSvg = "";
 
 		await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
 		await ev.action.setTitle("");
@@ -61,12 +61,6 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 				streamDeck.logger.error(`Poll error: ${err}`);
 			});
 		}, POLL_INTERVAL_MS);
-
-		this.tickTimer = setInterval(() => {
-			this.tickIfRunning().catch((err) => {
-				streamDeck.logger.error(`Tick error: ${err}`);
-			});
-		}, TICK_INTERVAL_MS);
 
 		await this.pollAll();
 	}
@@ -88,6 +82,7 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 
 		this.cachedState = null;
 		this.isOnline = false;
+		this.lastRenderedSvg = "";
 	}
 
 	override async onKeyDown(ev: KeyDownEvent<TimerSettings>): Promise<void> {
@@ -162,43 +157,20 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 
 		const parsed = this.parseTimerData(data);
 		this.cachedState = parsed;
-		this.lastPollAt = Date.now();
-		this.lastRenderedRemainingSecs = parsed.remainingSecs;
 
 		const svg = this.renderState(parsed);
 		await this.updateAllActions(svg);
 	}
 
-	/**
-	 * Runs between polls to keep the displayed countdown perfectly in sync
-	 * with OnlyT: projects the current remaining seconds from the last poll's
-	 * value plus the wall-clock delta, and re-renders only when the displayed
-	 * integer second changes.
-	 */
-	private async tickIfRunning(): Promise<void> {
-		if (!this.isOnline || !this.cachedState || !this.cachedState.isRunning) {
-			return;
-		}
-
-		const secsSinceLastPoll = (Date.now() - this.lastPollAt) / 1000;
-		const projectedRemaining = Math.floor(this.cachedState.remainingSecs - secsSinceLastPoll);
-
-		if (projectedRemaining === this.lastRenderedRemainingSecs) {
-			return;
-		}
-
-		this.lastRenderedRemainingSecs = projectedRemaining;
-
-		const projectedState: ParsedTimerState = {
-			...this.cachedState,
-			remainingSecs: projectedRemaining,
-			isOvertime: projectedRemaining < 0,
-		};
-		const svg = this.renderState(projectedState);
-		await this.updateAllActions(svg);
-	}
-
 	private async updateAllActions(svg: string): Promise<void> {
+		// Skip re-render if the displayed content has not changed since last poll.
+		// This keeps the Stream Deck update rate to ~1 Hz (once per displayed
+		// second) even though we poll OnlyT at 5 Hz for tight sync.
+		if (svg === this.lastRenderedSvg) {
+			return;
+		}
+		this.lastRenderedSvg = svg;
+
 		const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 		for (const a of this.actions) {
 			await a.setImage(encoded);
@@ -252,10 +224,6 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = null;
-		}
-		if (this.tickTimer) {
-			clearInterval(this.tickTimer);
-			this.tickTimer = null;
 		}
 	}
 }

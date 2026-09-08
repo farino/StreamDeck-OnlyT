@@ -9454,13 +9454,14 @@ function renderEndOfMeeting() {
 	`);
 }
 
-const POLL_INTERVAL_MS = 1000;
-const TICK_INTERVAL_MS = 100;
+const POLL_INTERVAL_MS = 200;
 /**
  * Stream Deck action that controls the OnlyT meeting timer.
- * Polls the OnlyT REST API for authoritative state, and locally ticks
- * between polls so the displayed countdown flips at the same instant
- * as OnlyT's own display (rather than lagging up to one poll interval).
+ * Polls the OnlyT REST API at 5 Hz so the displayed countdown is always
+ * within ~200 ms of OnlyT's own display (and never ahead of it, since
+ * the value comes straight from the server rather than being projected).
+ * Re-renders the key only when the displayed content actually changes,
+ * to keep the Stream Deck update rate low.
  */
 let TimerControl = (() => {
     let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.timer-control" })];
@@ -9479,11 +9480,9 @@ let TimerControl = (() => {
         }
         client = null;
         pollTimer = null;
-        tickTimer = null;
         cachedState = null;
         isOnline = false;
-        lastPollAt = 0;
-        lastRenderedRemainingSecs = Number.MAX_SAFE_INTEGER;
+        lastRenderedSvg = "";
         async onWillAppear(ev) {
             streamDeck.logger.info("onWillAppear fired");
             const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
@@ -9491,6 +9490,7 @@ let TimerControl = (() => {
             this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
             this.cachedState = null;
             this.isOnline = false;
+            this.lastRenderedSvg = "";
             await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
             await ev.action.setTitle("");
             this.stopPolling();
@@ -9499,11 +9499,6 @@ let TimerControl = (() => {
                     streamDeck.logger.error(`Poll error: ${err}`);
                 });
             }, POLL_INTERVAL_MS);
-            this.tickTimer = setInterval(() => {
-                this.tickIfRunning().catch((err) => {
-                    streamDeck.logger.error(`Tick error: ${err}`);
-                });
-            }, TICK_INTERVAL_MS);
             await this.pollAll();
         }
         async onWillDisappear(_ev) {
@@ -9521,6 +9516,7 @@ let TimerControl = (() => {
             }
             this.cachedState = null;
             this.isOnline = false;
+            this.lastRenderedSvg = "";
         }
         async onKeyDown(ev) {
             streamDeck.logger.info("onKeyDown fired");
@@ -9587,36 +9583,17 @@ let TimerControl = (() => {
             this.isOnline = true;
             const parsed = this.parseTimerData(data);
             this.cachedState = parsed;
-            this.lastPollAt = Date.now();
-            this.lastRenderedRemainingSecs = parsed.remainingSecs;
             const svg = this.renderState(parsed);
             await this.updateAllActions(svg);
         }
-        /**
-         * Runs between polls to keep the displayed countdown perfectly in sync
-         * with OnlyT: projects the current remaining seconds from the last poll's
-         * value plus the wall-clock delta, and re-renders only when the displayed
-         * integer second changes.
-         */
-        async tickIfRunning() {
-            if (!this.isOnline || !this.cachedState || !this.cachedState.isRunning) {
-                return;
-            }
-            const secsSinceLastPoll = (Date.now() - this.lastPollAt) / 1000;
-            const projectedRemaining = Math.floor(this.cachedState.remainingSecs - secsSinceLastPoll);
-            if (projectedRemaining === this.lastRenderedRemainingSecs) {
-                return;
-            }
-            this.lastRenderedRemainingSecs = projectedRemaining;
-            const projectedState = {
-                ...this.cachedState,
-                remainingSecs: projectedRemaining,
-                isOvertime: projectedRemaining < 0,
-            };
-            const svg = this.renderState(projectedState);
-            await this.updateAllActions(svg);
-        }
         async updateAllActions(svg) {
+            // Skip re-render if the displayed content has not changed since last poll.
+            // This keeps the Stream Deck update rate to ~1 Hz (once per displayed
+            // second) even though we poll OnlyT at 5 Hz for tight sync.
+            if (svg === this.lastRenderedSvg) {
+                return;
+            }
+            this.lastRenderedSvg = svg;
             const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
             for (const a of this.actions) {
                 await a.setImage(encoded);
@@ -9658,10 +9635,6 @@ let TimerControl = (() => {
             if (this.pollTimer) {
                 clearInterval(this.pollTimer);
                 this.pollTimer = null;
-            }
-            if (this.tickTimer) {
-                clearInterval(this.tickTimer);
-                this.tickTimer = null;
             }
         }
     });
