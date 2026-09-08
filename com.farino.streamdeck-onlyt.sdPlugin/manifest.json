@@ -10,9 +10,9 @@
 	"CategoryIcon": "imgs/plugin/category-icon",
 	"CodePath": "bin/plugin.js",
 	"Icon": "imgs/plugin/marketplace",
-	"SDKVersion": 2,
+	"SDKVersion": 3,
 	"Software": {
-		"MinimumVersion": "6.5"
+		"MinimumVersion": "6.9"
 	},
 	"OS": [
 		{
@@ -30,7 +30,9 @@
 			"UUID": "com.farino.streamdeck-onlyt.timer-control",
 			"Icon": "imgs/actions/timer/icon",
 			"Tooltip": "Start and stop OnlyT meeting timers. Shows countdown, talk name, and colour-coded status.",
-			"Controllers": ["Keypad"],
+			"Controllers": [
+				"Keypad"
+			],
 			"PropertyInspectorPath": "ui/timer-settings.html",
 			"States": [
 				{
