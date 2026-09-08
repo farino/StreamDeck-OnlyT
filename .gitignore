@@ -24,3 +24,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Local designer inbox — source PNGs live in assets/icons/ after processing
+IMG/
