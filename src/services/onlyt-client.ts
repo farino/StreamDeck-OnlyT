@@ -4,6 +4,16 @@ import type { TimersResponse, TimerCommandResponse } from "../types";
 const REQUEST_TIMEOUT_MS = 3000;
 
 /**
+ * Node's built-in fetch resolves `localhost` to IPv6 (`::1`) first on Windows,
+ * but OnlyT's HTTP listener only binds to IPv4 (`127.0.0.1`). Force IPv4 so
+ * requests succeed regardless of what the user configured in the property inspector.
+ */
+function normalizeHost(host: string): string {
+	const trimmed = (host || "").trim().toLowerCase();
+	return trimmed === "localhost" ? "127.0.0.1" : (host || "127.0.0.1");
+}
+
+/**
  * HTTP client for the OnlyT REST API (v4).
  */
 export class OnlyTClient {
@@ -11,12 +21,12 @@ export class OnlyTClient {
 	private apiCode: string;
 
 	constructor(host: string, port: number, apiCode: string = "") {
-		this.baseUrl = `http://${host}:${port}`;
+		this.baseUrl = `http://${normalizeHost(host)}:${port}`;
 		this.apiCode = apiCode;
 	}
 
 	updateConnection(host: string, port: number, apiCode: string = ""): void {
-		this.baseUrl = `http://${host}:${port}`;
+		this.baseUrl = `http://${normalizeHost(host)}:${port}`;
 		this.apiCode = apiCode;
 	}
 

@@ -9180,17 +9180,26 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
 
 const REQUEST_TIMEOUT_MS = 3000;
 /**
+ * Node's built-in fetch resolves `localhost` to IPv6 (`::1`) first on Windows,
+ * but OnlyT's HTTP listener only binds to IPv4 (`127.0.0.1`). Force IPv4 so
+ * requests succeed regardless of what the user configured in the property inspector.
+ */
+function normalizeHost(host) {
+    const trimmed = (host || "").trim().toLowerCase();
+    return trimmed === "localhost" ? "127.0.0.1" : (host || "127.0.0.1");
+}
+/**
  * HTTP client for the OnlyT REST API (v4).
  */
 class OnlyTClient {
     baseUrl;
     apiCode;
     constructor(host, port, apiCode = "") {
-        this.baseUrl = `http://${host}:${port}`;
+        this.baseUrl = `http://${normalizeHost(host)}:${port}`;
         this.apiCode = apiCode;
     }
     updateConnection(host, port, apiCode = "") {
-        this.baseUrl = `http://${host}:${port}`;
+        this.baseUrl = `http://${normalizeHost(host)}:${port}`;
         this.apiCode = apiCode;
     }
     async getTimers() {
@@ -9240,7 +9249,7 @@ class OnlyTClient {
 }
 
 const DEFAULT_SETTINGS = {
-    host: "localhost",
+    host: "127.0.0.1",
     port: 8096,
     apiCode: "",
 };
@@ -9446,9 +9455,12 @@ function renderEndOfMeeting() {
 }
 
 const POLL_INTERVAL_MS = 1000;
+const TICK_INTERVAL_MS = 100;
 /**
  * Stream Deck action that controls the OnlyT meeting timer.
- * Polls the OnlyT REST API and renders dynamic SVG on the key.
+ * Polls the OnlyT REST API for authoritative state, and locally ticks
+ * between polls so the displayed countdown flips at the same instant
+ * as OnlyT's own display (rather than lagging up to one poll interval).
  */
 let TimerControl = (() => {
     let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.timer-control" })];
@@ -9467,8 +9479,11 @@ let TimerControl = (() => {
         }
         client = null;
         pollTimer = null;
+        tickTimer = null;
         cachedState = null;
         isOnline = false;
+        lastPollAt = 0;
+        lastRenderedRemainingSecs = Number.MAX_SAFE_INTEGER;
         async onWillAppear(ev) {
             streamDeck.logger.info("onWillAppear fired");
             const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
@@ -9484,6 +9499,11 @@ let TimerControl = (() => {
                     streamDeck.logger.error(`Poll error: ${err}`);
                 });
             }, POLL_INTERVAL_MS);
+            this.tickTimer = setInterval(() => {
+                this.tickIfRunning().catch((err) => {
+                    streamDeck.logger.error(`Tick error: ${err}`);
+                });
+            }, TICK_INTERVAL_MS);
             await this.pollAll();
         }
         async onWillDisappear(_ev) {
@@ -9567,7 +9587,33 @@ let TimerControl = (() => {
             this.isOnline = true;
             const parsed = this.parseTimerData(data);
             this.cachedState = parsed;
+            this.lastPollAt = Date.now();
+            this.lastRenderedRemainingSecs = parsed.remainingSecs;
             const svg = this.renderState(parsed);
+            await this.updateAllActions(svg);
+        }
+        /**
+         * Runs between polls to keep the displayed countdown perfectly in sync
+         * with OnlyT: projects the current remaining seconds from the last poll's
+         * value plus the wall-clock delta, and re-renders only when the displayed
+         * integer second changes.
+         */
+        async tickIfRunning() {
+            if (!this.isOnline || !this.cachedState || !this.cachedState.isRunning) {
+                return;
+            }
+            const secsSinceLastPoll = (Date.now() - this.lastPollAt) / 1000;
+            const projectedRemaining = Math.floor(this.cachedState.remainingSecs - secsSinceLastPoll);
+            if (projectedRemaining === this.lastRenderedRemainingSecs) {
+                return;
+            }
+            this.lastRenderedRemainingSecs = projectedRemaining;
+            const projectedState = {
+                ...this.cachedState,
+                remainingSecs: projectedRemaining,
+                isOvertime: projectedRemaining < 0,
+            };
+            const svg = this.renderState(projectedState);
             await this.updateAllActions(svg);
         }
         async updateAllActions(svg) {
@@ -9612,6 +9658,10 @@ let TimerControl = (() => {
             if (this.pollTimer) {
                 clearInterval(this.pollTimer);
                 this.pollTimer = null;
+            }
+            if (this.tickTimer) {
+                clearInterval(this.tickTimer);
+                this.tickTimer = null;
             }
         }
     });
