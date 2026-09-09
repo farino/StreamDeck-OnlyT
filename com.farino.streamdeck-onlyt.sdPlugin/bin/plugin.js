@@ -9540,6 +9540,101 @@ function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
 		${dynamicText(displayTime, 72, 92, 40, prevY, currY)}
 	`);
 }
+// -----------------------------------------------------------------------------
+// Radial mode: chunky coloured ring around the time.
+// -----------------------------------------------------------------------------
+const RADIAL_CX = 72;
+const RADIAL_CY = 88;
+const RADIAL_R = 40;
+const RADIAL_STROKE = 8;
+const RADIAL_CIRCUMFERENCE = 2 * Math.PI * RADIAL_R;
+/**
+ * Full-circle path traced anti-clockwise starting at 12 o'clock. Used for the
+ * overtime ring so decreasing `stroke-dashoffset` reveals arc that extends
+ * CCW from the top, i.e. the ring "grows back the wrong way" to visualise how
+ * far you have gone over.
+ */
+const RADIAL_OVERTIME_PATH = `M ${RADIAL_CX} ${RADIAL_CY - RADIAL_R} ` +
+    `A ${RADIAL_R} ${RADIAL_R} 0 1 0 ${RADIAL_CX} ${RADIAL_CY + RADIAL_R} ` +
+    `A ${RADIAL_R} ${RADIAL_R} 0 1 0 ${RADIAL_CX} ${RADIAL_CY - RADIAL_R}`;
+/**
+ * Render the "running" state in Radial mode: a Default-style layout (title on
+ * top, big colour-coded time in the middle, no pulsing label) framed by a
+ * chunky ring around the time.
+ *
+ * While counting down, the ring is a `<circle>` rotated -90 degrees so its
+ * stroke starts at 12 o'clock and sweeps clockwise. `stroke-dasharray` is set
+ * to the circle's circumference and `stroke-dashoffset` grows from 0 (full
+ * ring) to C (empty), shrinking the visible arc from its END. Because the end
+ * point sits at path position `C - offset`, increasing the offset makes the
+ * end recede anti-clockwise around the circle, giving the "unwinding
+ * backwards" countdown motion.
+ *
+ * While in overtime the drain circle is omitted and a second `<path>` (a full
+ * circle drawn CCW from the top) is drawn instead. Its offset also shrinks
+ * over time, but because the path itself runs CCW the visible arc grows
+ * anti-clockwise from the top - the red ring visually "fills back up the
+ * wrong way", capping at a full ring once you have been over by a whole talk
+ * duration.
+ *
+ * Both rings inline the same `<animate attributeName="stroke-dashoffset" ...
+ * fill="freeze"/>` trick used by Dynamic mode's fill so we get a smooth
+ * per-second transition without polling faster.
+ */
+function renderRunningRadial(talkName, remainingSecs, targetSecs) {
+    const isOvertime = remainingSecs <= 0;
+    const safeTarget = targetSecs > 0 ? targetSecs : 1;
+    let colour;
+    if (isOvertime) {
+        colour = COLOURS.dynamicRed;
+    }
+    else if (remainingSecs <= safeTarget / 2) {
+        colour = COLOURS.timeOrange;
+    }
+    else {
+        colour = COLOURS.timeGreen;
+    }
+    const name = talkName || "Running";
+    const displayTime = isOvertime
+        ? `+${formatTime(Math.abs(remainingSecs))}`
+        : formatTime(remainingSecs);
+    // Ring stroke-dashoffset for a given "fraction visible" f (0 = empty, 1 = full).
+    const offsetFor = (f) => RADIAL_CIRCUMFERENCE * (1 - clamp(f, 0, 1));
+    const C = RADIAL_CIRCUMFERENCE.toFixed(3);
+    let ring;
+    if (isOvertime) {
+        // Overtime grows anti-clockwise; fraction is elapsed-overtime / target.
+        const over = Math.abs(remainingSecs);
+        const currOffset = offsetFor(over / safeTarget);
+        const prevOffset = offsetFor(Math.max(0, over - 1) / safeTarget);
+        ring =
+            `<path d="${RADIAL_OVERTIME_PATH}" fill="none" ` +
+                `stroke="${colour}" stroke-width="${RADIAL_STROKE}" stroke-linecap="round" ` +
+                `stroke-dasharray="${C}" stroke-dashoffset="${prevOffset.toFixed(3)}">` +
+                `<animate attributeName="stroke-dashoffset" from="${prevOffset.toFixed(3)}" ` +
+                `to="${currOffset.toFixed(3)}" dur="1s" fill="freeze"/>` +
+                `</path>`;
+    }
+    else {
+        // Countdown drains anti-clockwise; fraction is remaining / target.
+        const currOffset = offsetFor(remainingSecs / safeTarget);
+        const prevOffset = offsetFor((remainingSecs + 1) / safeTarget);
+        ring =
+            `<circle cx="${RADIAL_CX}" cy="${RADIAL_CY}" r="${RADIAL_R}" fill="none" ` +
+                `stroke="${colour}" stroke-width="${RADIAL_STROKE}" stroke-linecap="round" ` +
+                `transform="rotate(-90 ${RADIAL_CX} ${RADIAL_CY})" ` +
+                `stroke-dasharray="${C}" stroke-dashoffset="${prevOffset.toFixed(3)}">` +
+                `<animate attributeName="stroke-dashoffset" from="${prevOffset.toFixed(3)}" ` +
+                `to="${currOffset.toFixed(3)}" dur="1s" fill="freeze"/>` +
+                `</circle>`;
+    }
+    return wrapSvg(`
+		${ring}
+		${renderTitle(name, 16, COLOURS.textPrimary, 28)}
+		<text x="72" y="98" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>
+	`);
+}
 /**
  * Render the "offline" state when OnlyT is unreachable.
  * Shows a warning triangle above a two-line "OnlyT / Offline" cascade.
@@ -9761,6 +9856,9 @@ let TimerControl = (() => {
             if (state.isRunning) {
                 if (this.settings.displayMode === "dynamic") {
                     return renderRunningDynamic(state.currentTalkName, state.remainingSecs, state.targetSecs);
+                }
+                if (this.settings.displayMode === "radial") {
+                    return renderRunningRadial(state.currentTalkName, state.remainingSecs, state.targetSecs);
                 }
                 return renderRunning(state.currentTalkName, state.remainingSecs, state.closingSecs);
             }

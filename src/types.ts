@@ -3,8 +3,11 @@
  *  - "default": transparent background, coloured text (original look).
  *  - "dynamic": coloured fill bar that drains as the timer counts down,
  *               transitioning green -> orange (halfway) -> red (overtime).
+ *  - "radial":  coloured ring around the time that drains anti-clockwise,
+ *               green -> orange (halfway) -> red ring that grows back
+ *               anti-clockwise while in overtime.
  */
-export type DisplayMode = "default" | "dynamic";
+export type DisplayMode = "default" | "dynamic" | "radial";
 
 /**
  * Per-action-instance settings persisted by Stream Deck.

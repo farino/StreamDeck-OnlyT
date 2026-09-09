@@ -12,6 +12,7 @@ import {
 	renderReady,
 	renderRunning,
 	renderRunningDynamic,
+	renderRunningRadial,
 	renderOffline,
 	renderConnecting,
 	renderEndOfMeeting,
@@ -213,6 +214,13 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 		if (state.isRunning) {
 			if (this.settings.displayMode === "dynamic") {
 				return renderRunningDynamic(
+					state.currentTalkName,
+					state.remainingSecs,
+					state.targetSecs,
+				);
+			}
+			if (this.settings.displayMode === "radial") {
+				return renderRunningRadial(
 					state.currentTalkName,
 					state.remainingSecs,
 					state.targetSecs,
