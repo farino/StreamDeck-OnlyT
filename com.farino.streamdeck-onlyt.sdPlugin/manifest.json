@@ -45,7 +45,7 @@
 		{
 			"Name": "Start & Stop Only",
 			"UUID": "com.farino.streamdeck-onlyt.start-stop",
-			"Icon": "imgs/actions/timer/icon",
+			"Icon": "imgs/actions/start-stop/icon",
 			"Tooltip": "Start or stop the current OnlyT talk. Shows a play or stop glyph only - no countdown.",
 			"Controllers": [
 				"Keypad"
@@ -62,7 +62,7 @@
 		{
 			"Name": "Item Titles Only",
 			"UUID": "com.farino.streamdeck-onlyt.item-titles",
-			"Icon": "imgs/actions/timer/icon",
+			"Icon": "imgs/actions/item-titles/icon",
 			"Tooltip": "Display the current OnlyT talk name in large white text. Read-only - pressing does nothing.",
 			"Controllers": [
 				"Keypad"

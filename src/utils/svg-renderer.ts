@@ -516,26 +516,42 @@ export function renderEndOfMeeting(): string {
 
 // -----------------------------------------------------------------------------
 // Renderers used by the Start & Stop Only and Item Titles Only actions.
-// Neutral, monochrome, transparent-background - no colour coding.
 // -----------------------------------------------------------------------------
 
 /**
- * Render a large white play triangle centred in the tile. Shown by the
+ * White "OnlyT" branding label rendered at the top of the Start & Stop tile
+ * so a button placed on its own on a Stream Deck still identifies which app
+ * it's driving.
+ */
+function onlyTBrandLabel(): string {
+	return (
+		`<text x="72" y="24" text-anchor="middle" font-family="Arial,sans-serif" ` +
+		`font-size="16" font-weight="bold" fill="${COLOURS.textPrimary}">OnlyT</text>`
+	);
+}
+
+/**
+ * Render a green play triangle below the "OnlyT" label. Shown by the
  * "Start & Stop Only" action while the timer is stopped and ready.
+ * Colour matches the running-state green so the whole plugin reads as
+ * "green = go".
  */
 export function renderPlayGlyph(): string {
 	return wrapSvg(`
-		<polygon points="52,36 52,108 112,72" fill="${COLOURS.textPrimary}"/>
+		${onlyTBrandLabel()}
+		<polygon points="52,52 52,120 116,86" fill="${COLOURS.timeGreen}"/>
 	`);
 }
 
 /**
- * Render a large white rounded stop square centred in the tile. Shown by
- * the "Start & Stop Only" action while the timer is running.
+ * Render a red rounded stop square below the "OnlyT" label. Shown by
+ * the "Start & Stop Only" action while the timer is running. Red reads as
+ * "press to halt" and matches the overtime red used elsewhere.
  */
 export function renderStopGlyph(): string {
 	return wrapSvg(`
-		<rect x="42" y="42" width="60" height="60" rx="6" fill="${COLOURS.textPrimary}"/>
+		${onlyTBrandLabel()}
+		<rect x="46" y="56" width="56" height="56" rx="6" fill="${COLOURS.timeRed}"/>
 	`);
 }
 
