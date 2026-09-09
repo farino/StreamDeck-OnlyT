@@ -329,11 +329,15 @@ export function renderRunningDynamic(
 // Radial mode: chunky coloured ring around the time.
 // -----------------------------------------------------------------------------
 
+// Ring geometry - centred on the tile, sized big enough that "+MM:SS" at the
+// chosen font size always fits comfortably inside the inner diameter.
 const RADIAL_CX = 72;
-const RADIAL_CY = 88;
-const RADIAL_R = 40;
-const RADIAL_STROKE = 8;
+const RADIAL_CY = 72;
+const RADIAL_R = 62;
+const RADIAL_STROKE = 10;
 const RADIAL_CIRCUMFERENCE = 2 * Math.PI * RADIAL_R;
+const RADIAL_TIME_FONT_SIZE = 32;
+const RADIAL_TIME_BASELINE_Y = 84;
 
 /**
  * Full-circle path traced anti-clockwise starting at 12 o'clock. Used for the
@@ -347,9 +351,9 @@ const RADIAL_OVERTIME_PATH =
 	`A ${RADIAL_R} ${RADIAL_R} 0 1 0 ${RADIAL_CX} ${RADIAL_CY - RADIAL_R}`;
 
 /**
- * Render the "running" state in Radial mode: a Default-style layout (title on
- * top, big colour-coded time in the middle, no pulsing label) framed by a
- * chunky ring around the time.
+ * Render the "running" state in Radial mode: a big coloured ring centred on
+ * the tile with the colour-coded time inside. No title and no pulsing label,
+ * so the ring can dominate the display.
  *
  * While counting down, the ring is a `<circle>` rotated -90 degrees so its
  * stroke starts at 12 o'clock and sweeps clockwise. `stroke-dasharray` is set
@@ -360,18 +364,23 @@ const RADIAL_OVERTIME_PATH =
  * backwards" countdown motion.
  *
  * While in overtime the drain circle is omitted and a second `<path>` (a full
- * circle drawn CCW from the top) is drawn instead. Its offset also shrinks
- * over time, but because the path itself runs CCW the visible arc grows
- * anti-clockwise from the top - the red ring visually "fills back up the
- * wrong way", capping at a full ring once you have been over by a whole talk
- * duration.
+ * circle drawn CCW from the top) is drawn instead. Its offset also shrinks,
+ * but because the path itself runs CCW the visible red arc grows
+ * anti-clockwise from the top. Overtime is treated as a repeating lap: the
+ * ring grows to full over one `targetSecs`, then instantly resets to empty
+ * and starts filling again for the next lap, so every completed lap gives a
+ * clear visual "another whole talk length has ticked by" beat.
  *
  * Both rings inline the same `<animate attributeName="stroke-dashoffset" ...
  * fill="freeze"/>` trick used by Dynamic mode's fill so we get a smooth
  * per-second transition without polling faster.
+ *
+ * `talkName` is accepted for signature parity with the other running
+ * renderers but intentionally ignored - Radial mode drops the title so the
+ * ring can be as large as possible.
  */
 export function renderRunningRadial(
-	talkName: string,
+	_talkName: string,
 	remainingSecs: number,
 	targetSecs: number,
 ): string {
@@ -387,22 +396,40 @@ export function renderRunningRadial(
 		colour = COLOURS.timeGreen;
 	}
 
-	const name = talkName || "Running";
 	const displayTime = isOvertime
 		? `+${formatTime(Math.abs(remainingSecs))}`
 		: formatTime(remainingSecs);
 
 	// Ring stroke-dashoffset for a given "fraction visible" f (0 = empty, 1 = full).
 	const offsetFor = (f: number) => RADIAL_CIRCUMFERENCE * (1 - clamp(f, 0, 1));
-
 	const C = RADIAL_CIRCUMFERENCE.toFixed(3);
 
 	let ring: string;
 	if (isOvertime) {
-		// Overtime grows anti-clockwise; fraction is elapsed-overtime / target.
+		// Position within the current overtime lap. Exact multiples of the
+		// target duration show a full ring for that beat; the following
+		// second's render will snap back to a fresh growing lap.
+		const lapFrac = (secs: number): number => {
+			if (secs <= 0) return 0;
+			const modded = secs % safeTarget;
+			return modded === 0 ? 1 : modded / safeTarget;
+		};
+
 		const over = Math.abs(remainingSecs);
-		const currOffset = offsetFor(over / safeTarget);
-		const prevOffset = offsetFor(Math.max(0, over - 1) / safeTarget);
+		const currFrac = lapFrac(over);
+		let prevFrac = lapFrac(over - 1);
+
+		// Detect a lap boundary crossing: previous second was a full ring
+		// (frac === 1) and we're now on a fresh lap (0 < frac < 1). Snap
+		// `prevFrac` to 0 so the SVG's initial state (before the <animate>
+		// begins) is an empty ring - the swap of SVGs makes the ring visually
+		// reset to nothing, then the animation grows it again anti-clockwise.
+		if (prevFrac === 1 && currFrac > 0 && currFrac < 1) {
+			prevFrac = 0;
+		}
+
+		const currOffset = offsetFor(currFrac);
+		const prevOffset = offsetFor(prevFrac);
 
 		ring =
 			`<path d="${RADIAL_OVERTIME_PATH}" fill="none" ` +
@@ -428,9 +455,8 @@ export function renderRunningRadial(
 
 	return wrapSvg(`
 		${ring}
-		${renderTitle(name, 16, COLOURS.textPrimary, 28)}
-		<text x="72" y="98" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>
+		<text x="${RADIAL_CX}" y="${RADIAL_TIME_BASELINE_Y}" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="${RADIAL_TIME_FONT_SIZE}" font-weight="bold" fill="${colour}">${displayTime}</text>
 	`);
 }
 
