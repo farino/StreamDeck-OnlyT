@@ -199,14 +199,20 @@ function renderDynamicTitle(
 
 /**
  * Render the "ready / stopped" state.
- * Shows the current talk name, its predefined duration, and a play triangle.
+ * Shows the current talk name (optional), its predefined duration, and a
+ * play triangle. Pass `showTitle=false` to omit the title - used by the
+ * Timer Control action's "Item title" toggle for Default and Dynamic modes.
  */
-export function renderReady(talkName: string, durationSecs: number): string {
+export function renderReady(
+	talkName: string,
+	durationSecs: number,
+	showTitle = true,
+): string {
 	const name = talkName || "Ready";
 	const time = formatTime(durationSecs);
 
 	return wrapSvg(`
-		${renderTitle(name, 16, COLOURS.textPrimary, 28)}
+		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
 		<text x="72" y="88" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="38" font-weight="bold" fill="${COLOURS.textPrimary}">${time}</text>
 		<polygon points="56,108 56,132 80,120" fill="${COLOURS.playIcon}"/>
@@ -217,13 +223,17 @@ export function renderReady(talkName: string, durationSecs: number): string {
 
 /**
  * Render the "running" state with transparent background and colour-coded time.
- * Green = normal, orange = closing, red = overtime.
- * The RUNNING label pulses in the same colour as the time.
+ * Green = normal, orange = closing, red = overtime. The countdown itself is
+ * the liveness cue - there is no separate "RUNNING" label.
+ *
+ * Pass `showTitle=false` to omit the talk name (used by the Timer Control
+ * action's "Item title" toggle for Default and Dynamic modes).
  */
 export function renderRunning(
 	talkName: string,
 	remainingSecs: number,
 	closingSecs: number,
+	showTitle = true,
 ): string {
 	const isOvertime = remainingSecs < 0;
 	const isClosing = !isOvertime && remainingSecs <= closingSecs;
@@ -243,14 +253,9 @@ export function renderRunning(
 		: formatTime(remainingSecs);
 
 	return wrapSvg(`
-		${renderTitle(name, 16, COLOURS.textPrimary, 28)}
+		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
 		<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>
-		<text x="72" y="126" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="14" font-weight="bold" fill="${colour}">
-			RUNNING
-			<animate attributeName="opacity" values="1;0.3;1" dur="1.2s" repeatCount="indefinite"/>
-		</text>
 	`);
 }
 
@@ -279,6 +284,7 @@ export function renderRunningDynamic(
 	talkName: string,
 	remainingSecs: number,
 	targetSecs: number,
+	showTitle = true,
 ): string {
 	const isOvertime = remainingSecs <= 0;
 	const safeTarget = targetSecs > 0 ? targetSecs : 1;
@@ -320,7 +326,7 @@ export function renderRunningDynamic(
 
 	return wrapSvg(`
 		${fillRect}
-		${renderDynamicTitle(name, 16, 28, prevY, currY)}
+		${showTitle ? renderDynamicTitle(name, 16, 28, prevY, currY) : ""}
 		${dynamicText(displayTime, 72, 92, 40, prevY, currY)}
 	`);
 }
@@ -506,4 +512,104 @@ export function renderEndOfMeeting(): string {
 		<text x="72" y="104" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="14" font-weight="bold" fill="${COLOURS.textSecondary}">COMPLETE</text>
 	`);
+}
+
+// -----------------------------------------------------------------------------
+// Renderers used by the Start & Stop Only and Item Titles Only actions.
+// Neutral, monochrome, transparent-background - no colour coding.
+// -----------------------------------------------------------------------------
+
+/**
+ * Render a large white play triangle centred in the tile. Shown by the
+ * "Start & Stop Only" action while the timer is stopped and ready.
+ */
+export function renderPlayGlyph(): string {
+	return wrapSvg(`
+		<polygon points="52,36 52,108 112,72" fill="${COLOURS.textPrimary}"/>
+	`);
+}
+
+/**
+ * Render a large white rounded stop square centred in the tile. Shown by
+ * the "Start & Stop Only" action while the timer is running.
+ */
+export function renderStopGlyph(): string {
+	return wrapSvg(`
+		<rect x="42" y="42" width="60" height="60" rx="6" fill="${COLOURS.textPrimary}"/>
+	`);
+}
+
+// -----------------------------------------------------------------------------
+// Item Titles Only renderer.
+// -----------------------------------------------------------------------------
+
+const TITLE_ONLY_MAX_CHARS_PER_LINE = 11;
+const TITLE_ONLY_FONT_SIZE = 24;
+const TITLE_ONLY_LINE_HEIGHT = 28;
+
+/**
+ * Word-wrap a title into up to 3 lines for the "Item Titles Only" action.
+ * Prefers word boundaries; falls back to a hard split for a single very
+ * long word. Overflow past 3 lines is truncated with an ellipsis.
+ */
+function splitTitleThreeLines(text: string): string[] {
+	if (!text) return [""];
+	const words = text.split(/\s+/).filter(Boolean);
+	if (words.length === 0) return [""];
+
+	const lines: string[] = [""];
+	for (const w of words) {
+		const last = lines[lines.length - 1];
+		const candidate = last ? `${last} ${w}` : w;
+		if (candidate.length <= TITLE_ONLY_MAX_CHARS_PER_LINE) {
+			lines[lines.length - 1] = candidate;
+		} else if (lines.length < 3) {
+			// Start a new line. If the single word itself is longer than a line,
+			// let it overflow onto its own line and truncate at the end.
+			lines.push(w);
+		} else {
+			// Out of lines - append ellipsis to the last line and stop.
+			const truncated = last.length >= TITLE_ONLY_MAX_CHARS_PER_LINE - 1
+				? `${last.substring(0, TITLE_ONLY_MAX_CHARS_PER_LINE - 1)}\u2026`
+				: `${last}\u2026`;
+			lines[lines.length - 1] = truncated;
+			break;
+		}
+	}
+
+	// Cap any single line that's still too long (single long word).
+	return lines.map((l) =>
+		l.length > TITLE_ONLY_MAX_CHARS_PER_LINE
+			? `${l.substring(0, TITLE_ONLY_MAX_CHARS_PER_LINE - 1)}\u2026`
+			: l,
+	);
+}
+
+/**
+ * Render the current talk title as large white text, vertically centred and
+ * wrapped over up to 3 lines. Used by the "Item Titles Only" action - no
+ * time, no controls, just the name.
+ */
+export function renderTitleOnly(talkName: string): string {
+	const name = (talkName ?? "").trim();
+	if (!name) {
+		return wrapSvg(`
+			<text x="72" y="80" text-anchor="middle" font-family="Arial,sans-serif"
+				font-size="20" font-weight="bold" fill="${COLOURS.textSecondary}">No talk</text>
+		`);
+	}
+
+	const lines = splitTitleThreeLines(name);
+	// Vertically centre the block around y=72.
+	const blockHeight = (lines.length - 1) * TITLE_ONLY_LINE_HEIGHT;
+	const firstBaselineY = 72 - blockHeight / 2 + TITLE_ONLY_FONT_SIZE / 3;
+
+	const textElements = lines
+		.map((line, i) => {
+			const y = firstBaselineY + i * TITLE_ONLY_LINE_HEIGHT;
+			return `<text x="72" y="${y.toFixed(2)}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${TITLE_ONLY_FONT_SIZE}" font-weight="bold" fill="${COLOURS.textPrimary}">${escXml(line)}</text>`;
+		})
+		.join("");
+
+	return wrapSvg(textElements);
 }

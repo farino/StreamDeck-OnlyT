@@ -2,7 +2,7 @@
 <html>
 <head>
 	<meta charset="utf-8" />
-	<title>OnlyT Timer Settings</title>
+	<title>OnlyT Start & Stop Settings</title>
 	<style>
 		:root {
 			--bg: #2d2d2d;
@@ -47,8 +47,7 @@
 			font-size: 11px;
 		}
 
-		.sdpi-item input,
-		.sdpi-item select {
+		.sdpi-item input {
 			flex: 1;
 			background: var(--input-bg);
 			border: 1px solid var(--border);
@@ -59,32 +58,7 @@
 			outline: none;
 		}
 
-		.sdpi-item select {
-			appearance: none;
-			-webkit-appearance: none;
-			background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M0 0l5 6 5-6z' fill='%23999'/></svg>");
-			background-repeat: no-repeat;
-			background-position: right 8px center;
-			padding-right: 24px;
-			cursor: pointer;
-		}
-
-		.sdpi-item input[type="checkbox"] {
-			flex: 0 0 auto;
-			width: 16px;
-			height: 16px;
-			margin: 0;
-			padding: 0;
-			accent-color: var(--accent);
-			cursor: pointer;
-		}
-
-		.sdpi-item-checkbox {
-			justify-content: flex-start;
-		}
-
-		.sdpi-item input:focus,
-		.sdpi-item select:focus {
+		.sdpi-item input:focus {
 			border-color: var(--accent);
 		}
 
@@ -156,24 +130,6 @@
 </head>
 <body>
 	<div class="sdpi-wrapper">
-		<div class="sdpi-heading">Display</div>
-
-		<div class="sdpi-item">
-			<label for="displayMode">Mode</label>
-			<select id="displayMode">
-				<option value="default">Default (coloured text)</option>
-				<option value="dynamic">Dynamic (draining fill)</option>
-				<option value="radial">Radial (draining ring)</option>
-			</select>
-		</div>
-		<div class="sdpi-hint">Default: coloured text only. Dynamic: bar drains green &rarr; orange (halfway) &rarr; red (overtime). Radial: ring around the time drains anti-clockwise, then a red ring grows back on overtime.</div>
-
-		<div class="sdpi-item sdpi-item-checkbox">
-			<label for="showTitle">Item title</label>
-			<input type="checkbox" id="showTitle" checked />
-		</div>
-		<div class="sdpi-hint">Show the current talk name above the time. Default and Dynamic modes only &mdash; Radial never displays a title.</div>
-
 		<div class="sdpi-heading">OnlyT Connection</div>
 
 		<div class="sdpi-item">
@@ -207,9 +163,8 @@
 	</div>
 
 	<script>
-		const $SD = window.$SD;
 		let uuid = "";
-		let settings = { host: "localhost", port: 8096, apiCode: "", displayMode: "default", showTitle: true };
+		let settings = { host: "localhost", port: 8096, apiCode: "" };
 
 		/**
 		 * Connect to Stream Deck property inspector API.
@@ -246,8 +201,6 @@
 			document.getElementById("host").addEventListener("change", onFieldChanged);
 			document.getElementById("port").addEventListener("change", onFieldChanged);
 			document.getElementById("apiCode").addEventListener("change", onFieldChanged);
-			document.getElementById("displayMode").addEventListener("change", onFieldChanged);
-			document.getElementById("showTitle").addEventListener("change", onFieldChanged);
 
 			testConnection();
 		}
@@ -256,17 +209,12 @@
 			document.getElementById("host").value = settings.host || "";
 			document.getElementById("port").value = settings.port || 8096;
 			document.getElementById("apiCode").value = settings.apiCode || "";
-			document.getElementById("displayMode").value = settings.displayMode || "default";
-			// Treat missing showTitle as true so existing users don't unexpectedly lose their title.
-			document.getElementById("showTitle").checked = settings.showTitle !== false;
 		}
 
 		function onFieldChanged() {
 			settings.host = document.getElementById("host").value || "localhost";
 			settings.port = parseInt(document.getElementById("port").value, 10) || 8096;
 			settings.apiCode = document.getElementById("apiCode").value || "";
-			settings.displayMode = document.getElementById("displayMode").value || "default";
-			settings.showTitle = document.getElementById("showTitle").checked;
 
 			if (window._ws && window._ws.readyState === WebSocket.OPEN) {
 				window._ws.send(JSON.stringify({

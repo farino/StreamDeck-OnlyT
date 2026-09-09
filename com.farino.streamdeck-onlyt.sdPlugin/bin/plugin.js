@@ -9248,11 +9248,15 @@ class OnlyTClient {
     }
 }
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_CONNECTION = {
     host: "127.0.0.1",
     port: 8096,
     apiCode: "",
+};
+const DEFAULT_SETTINGS = {
+    ...DEFAULT_CONNECTION,
     displayMode: "default",
+    showTitle: true,
 };
 /**
  * Parse a .NET TimeSpan string "HH:MM:SS.fff" into total seconds.
@@ -9433,13 +9437,15 @@ function renderDynamicTitle(text, fontSize, centreY, prevFillTop, currFillTop) {
 }
 /**
  * Render the "ready / stopped" state.
- * Shows the current talk name, its predefined duration, and a play triangle.
+ * Shows the current talk name (optional), its predefined duration, and a
+ * play triangle. Pass `showTitle=false` to omit the title - used by the
+ * Timer Control action's "Item title" toggle for Default and Dynamic modes.
  */
-function renderReady(talkName, durationSecs) {
+function renderReady(talkName, durationSecs, showTitle = true) {
     const name = talkName || "Ready";
     const time = formatTime(durationSecs);
     return wrapSvg(`
-		${renderTitle(name, 16, COLOURS.textPrimary, 28)}
+		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
 		<text x="72" y="88" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="38" font-weight="bold" fill="${COLOURS.textPrimary}">${time}</text>
 		<polygon points="56,108 56,132 80,120" fill="${COLOURS.playIcon}"/>
@@ -9449,10 +9455,13 @@ function renderReady(talkName, durationSecs) {
 }
 /**
  * Render the "running" state with transparent background and colour-coded time.
- * Green = normal, orange = closing, red = overtime.
- * The RUNNING label pulses in the same colour as the time.
+ * Green = normal, orange = closing, red = overtime. The countdown itself is
+ * the liveness cue - there is no separate "RUNNING" label.
+ *
+ * Pass `showTitle=false` to omit the talk name (used by the Timer Control
+ * action's "Item title" toggle for Default and Dynamic modes).
  */
-function renderRunning(talkName, remainingSecs, closingSecs) {
+function renderRunning(talkName, remainingSecs, closingSecs, showTitle = true) {
     const isOvertime = remainingSecs < 0;
     const isClosing = !isOvertime && remainingSecs <= closingSecs;
     let colour;
@@ -9470,14 +9479,9 @@ function renderRunning(talkName, remainingSecs, closingSecs) {
         ? `+${formatTime(Math.abs(remainingSecs))}`
         : formatTime(remainingSecs);
     return wrapSvg(`
-		${renderTitle(name, 16, COLOURS.textPrimary, 28)}
+		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
 		<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>
-		<text x="72" y="126" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="14" font-weight="bold" fill="${colour}">
-			RUNNING
-			<animate attributeName="opacity" values="1;0.3;1" dur="1.2s" repeatCount="indefinite"/>
-		</text>
 	`);
 }
 /**
@@ -9501,7 +9505,7 @@ function renderRunning(talkName, remainingSecs, closingSecs) {
  *     fractional moment of the crossover, so the swap tracks the fill edge
  *     without needing clip-path or mask support in the renderer.
  */
-function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
+function renderRunningDynamic(talkName, remainingSecs, targetSecs, showTitle = true) {
     const isOvertime = remainingSecs <= 0;
     const safeTarget = targetSecs > 0 ? targetSecs : 1;
     let fillColour;
@@ -9536,7 +9540,7 @@ function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
         `</rect>`;
     return wrapSvg(`
 		${fillRect}
-		${renderDynamicTitle(name, 16, 28, prevY, currY)}
+		${showTitle ? renderDynamicTitle(name, 16, 28, prevY, currY) : ""}
 		${dynamicText(displayTime, 72, 92, 40, prevY, currY)}
 	`);
 }
@@ -9705,22 +9709,277 @@ function renderEndOfMeeting() {
 			font-size="14" font-weight="bold" fill="${COLOURS.textSecondary}">COMPLETE</text>
 	`);
 }
+// -----------------------------------------------------------------------------
+// Renderers used by the Start & Stop Only and Item Titles Only actions.
+// Neutral, monochrome, transparent-background - no colour coding.
+// -----------------------------------------------------------------------------
+/**
+ * Render a large white play triangle centred in the tile. Shown by the
+ * "Start & Stop Only" action while the timer is stopped and ready.
+ */
+function renderPlayGlyph() {
+    return wrapSvg(`
+		<polygon points="52,36 52,108 112,72" fill="${COLOURS.textPrimary}"/>
+	`);
+}
+/**
+ * Render a large white rounded stop square centred in the tile. Shown by
+ * the "Start & Stop Only" action while the timer is running.
+ */
+function renderStopGlyph() {
+    return wrapSvg(`
+		<rect x="42" y="42" width="60" height="60" rx="6" fill="${COLOURS.textPrimary}"/>
+	`);
+}
+// -----------------------------------------------------------------------------
+// Item Titles Only renderer.
+// -----------------------------------------------------------------------------
+const TITLE_ONLY_MAX_CHARS_PER_LINE = 11;
+const TITLE_ONLY_FONT_SIZE = 24;
+const TITLE_ONLY_LINE_HEIGHT = 28;
+/**
+ * Word-wrap a title into up to 3 lines for the "Item Titles Only" action.
+ * Prefers word boundaries; falls back to a hard split for a single very
+ * long word. Overflow past 3 lines is truncated with an ellipsis.
+ */
+function splitTitleThreeLines(text) {
+    if (!text)
+        return [""];
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length === 0)
+        return [""];
+    const lines = [""];
+    for (const w of words) {
+        const last = lines[lines.length - 1];
+        const candidate = last ? `${last} ${w}` : w;
+        if (candidate.length <= TITLE_ONLY_MAX_CHARS_PER_LINE) {
+            lines[lines.length - 1] = candidate;
+        }
+        else if (lines.length < 3) {
+            // Start a new line. If the single word itself is longer than a line,
+            // let it overflow onto its own line and truncate at the end.
+            lines.push(w);
+        }
+        else {
+            // Out of lines - append ellipsis to the last line and stop.
+            const truncated = last.length >= TITLE_ONLY_MAX_CHARS_PER_LINE - 1
+                ? `${last.substring(0, TITLE_ONLY_MAX_CHARS_PER_LINE - 1)}\u2026`
+                : `${last}\u2026`;
+            lines[lines.length - 1] = truncated;
+            break;
+        }
+    }
+    // Cap any single line that's still too long (single long word).
+    return lines.map((l) => l.length > TITLE_ONLY_MAX_CHARS_PER_LINE
+        ? `${l.substring(0, TITLE_ONLY_MAX_CHARS_PER_LINE - 1)}\u2026`
+        : l);
+}
+/**
+ * Render the current talk title as large white text, vertically centred and
+ * wrapped over up to 3 lines. Used by the "Item Titles Only" action - no
+ * time, no controls, just the name.
+ */
+function renderTitleOnly(talkName) {
+    const name = (talkName ?? "").trim();
+    if (!name) {
+        return wrapSvg(`
+			<text x="72" y="80" text-anchor="middle" font-family="Arial,sans-serif"
+				font-size="20" font-weight="bold" fill="${COLOURS.textSecondary}">No talk</text>
+		`);
+    }
+    const lines = splitTitleThreeLines(name);
+    // Vertically centre the block around y=72.
+    const blockHeight = (lines.length - 1) * TITLE_ONLY_LINE_HEIGHT;
+    const firstBaselineY = 72 - blockHeight / 2 + TITLE_ONLY_FONT_SIZE / 3;
+    const textElements = lines
+        .map((line, i) => {
+        const y = firstBaselineY + i * TITLE_ONLY_LINE_HEIGHT;
+        return `<text x="72" y="${y.toFixed(2)}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${TITLE_ONLY_FONT_SIZE}" font-weight="bold" fill="${COLOURS.textPrimary}">${escXml(line)}</text>`;
+    })
+        .join("");
+    return wrapSvg(textElements);
+}
 
 const POLL_INTERVAL_MS = 200;
 /**
- * Stream Deck action that controls the OnlyT meeting timer.
- * Polls the OnlyT REST API at 5 Hz so the displayed countdown is always
- * within ~200 ms of OnlyT's own display (and never ahead of it, since
- * the value comes straight from the server rather than being projected).
- * Re-renders the key only when the displayed content actually changes,
- * to keep the Stream Deck update rate low.
+ * Shared base for every action in this plugin. Owns the OnlyT connection,
+ * the 5 Hz poll loop, offline detection, state parsing, and the "only push
+ * a new image when the rendered SVG actually changed" throttle.
+ *
+ * Subclasses provide two things:
+ *  - `renderState(state)` - returns the SVG string for the current parsed
+ *    state (each action can render however it likes).
+ *  - `onKeyPress(state, ev)` - optional; called on button press with the
+ *    latest parsed state and the raw event. Default is a no-op so
+ *    display-only actions (e.g. "Item Titles Only") don't have to override.
+ *
+ * `ConnectionSettings` is the minimum shape a subclass's settings type must
+ * satisfy; subclasses are free to extend it with additional fields (e.g.
+ * `TimerSettings` adds `displayMode` and `showTitle`).
+ */
+class BaseOnlyTAction extends SingletonAction {
+    client = null;
+    pollTimer = null;
+    cachedState = null;
+    isOnline = false;
+    lastRenderedSvg = "";
+    settings = { ...DEFAULT_CONNECTION };
+    async onWillAppear(ev) {
+        streamDeck.logger.info(`${this.constructor.name}.onWillAppear fired`);
+        const settings = this.mergeSettings(ev.payload.settings);
+        this.settings = settings;
+        this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
+        this.cachedState = null;
+        this.isOnline = false;
+        this.lastRenderedSvg = "";
+        await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
+        await ev.action.setTitle("");
+        this.stopPolling();
+        this.pollTimer = setInterval(() => {
+            this.pollAll().catch((err) => {
+                streamDeck.logger.error(`Poll error: ${err}`);
+            });
+        }, POLL_INTERVAL_MS);
+        await this.pollAll();
+    }
+    async onWillDisappear(_ev) {
+        streamDeck.logger.info(`${this.constructor.name}.onWillDisappear fired`);
+        this.stopPolling();
+    }
+    async onDidReceiveSettings(ev) {
+        const settings = this.mergeSettings(ev.payload.settings);
+        streamDeck.logger.info(`${this.constructor.name} settings updated: host=${settings.host}, port=${settings.port}`);
+        this.settings = settings;
+        if (this.client) {
+            this.client.updateConnection(settings.host, settings.port, settings.apiCode);
+        }
+        else {
+            this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
+        }
+        this.cachedState = null;
+        this.isOnline = false;
+        this.lastRenderedSvg = "";
+    }
+    async onKeyDown(ev) {
+        streamDeck.logger.info(`${this.constructor.name}.onKeyDown fired`);
+        if (!this.client) {
+            streamDeck.logger.warn("No client configured");
+            await ev.action.showAlert();
+            return;
+        }
+        if (!this.isOnline || !this.cachedState) {
+            streamDeck.logger.warn(`Cannot act: online=${this.isOnline}, hasState=${!!this.cachedState}`);
+            await ev.action.showAlert();
+            return;
+        }
+        try {
+            await this.onKeyPress(this.cachedState, ev);
+        }
+        catch (err) {
+            streamDeck.logger.error(`onKeyDown error: ${err}`);
+            await ev.action.showAlert();
+        }
+    }
+    /**
+     * Merge persisted settings on top of the shared connection defaults.
+     * Subclasses that need to layer their own defaults can override this.
+     */
+    mergeSettings(persisted) {
+        return { ...DEFAULT_CONNECTION, ...(persisted ?? {}) };
+    }
+    /**
+     * Handle a button press with the latest parsed state. Default is a
+     * no-op so display-only actions (e.g. Item Titles Only) don't need
+     * to override anything.
+     */
+    async onKeyPress(_state, _ev) {
+        // no-op by default
+    }
+    /**
+     * Trigger an immediate poll and re-render, e.g. after a start/stop call
+     * so the button reflects the new state without waiting for the next tick.
+     */
+    async refresh() {
+        await this.pollAll();
+    }
+    async pollAll() {
+        if (!this.client)
+            return;
+        const data = await this.client.getTimers();
+        if (!data) {
+            if (this.isOnline) {
+                streamDeck.logger.warn("Lost connection to OnlyT");
+            }
+            this.isOnline = false;
+            this.cachedState = null;
+            await this.updateAllActions(renderOffline());
+            return;
+        }
+        if (!this.isOnline) {
+            streamDeck.logger.info("Connected to OnlyT");
+        }
+        this.isOnline = true;
+        const parsed = this.parseTimerData(data);
+        this.cachedState = parsed;
+        const svg = this.renderState(parsed);
+        await this.updateAllActions(svg);
+    }
+    async updateAllActions(svg) {
+        // Skip re-render if the displayed content has not changed since last poll.
+        // This keeps the Stream Deck update rate to ~1 Hz (once per displayed
+        // second) even though we poll OnlyT at 5 Hz for tight sync.
+        if (svg === this.lastRenderedSvg) {
+            return;
+        }
+        this.lastRenderedSvg = svg;
+        const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+        for (const a of this.actions) {
+            await a.setImage(encoded);
+            await a.setTitle("");
+        }
+    }
+    parseTimerData(data) {
+        const { status, timerInfo } = data;
+        const currentTalk = timerInfo.find((t) => t.talkId === status.talkId);
+        const currentTalkName = currentTalk?.talkTitle ?? "";
+        const currentTalkDuration = currentTalk?.actualDurationSecs ?? status.targetSeconds;
+        const closingSecs = currentTalk?.closingSecs ?? status.closingSecs;
+        const elapsedSecs = parseTimeSpan(status.timeElapsed);
+        const remainingSecs = status.targetSeconds - elapsedSecs;
+        const isOvertime = remainingSecs < 0;
+        return {
+            isRunning: status.isRunning,
+            isPaused: status.isPaused,
+            currentTalkId: status.talkId,
+            currentTalkName,
+            remainingSecs,
+            targetSecs: status.targetSeconds,
+            closingSecs,
+            isOvertime,
+            nextTalkName: currentTalkName,
+            nextTalkDurationSecs: currentTalkDuration,
+        };
+    }
+    stopPolling() {
+        if (this.pollTimer) {
+            clearInterval(this.pollTimer);
+            this.pollTimer = null;
+        }
+    }
+}
+
+/**
+ * Full countdown Stream Deck action for OnlyT.
+ * Displays the current talk name and colour-coded countdown (or draining
+ * fill / radial ring, depending on `displayMode`), and toggles start/stop
+ * on OnlyT when pressed. Sync is handled by `BaseOnlyTAction`'s 5 Hz poll.
  */
 let TimerControl = (() => {
     let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.timer-control" })];
     let _classDescriptor;
     let _classExtraInitializers = [];
     let _classThis;
-    let _classSuper = SingletonAction;
+    let _classSuper = BaseOnlyTAction;
     (class extends _classSuper {
         static { _classThis = this; }
         static {
@@ -9730,177 +9989,154 @@ let TimerControl = (() => {
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
         }
-        client = null;
-        pollTimer = null;
-        cachedState = null;
-        isOnline = false;
-        lastRenderedSvg = "";
-        settings = { ...DEFAULT_SETTINGS };
-        async onWillAppear(ev) {
-            streamDeck.logger.info("onWillAppear fired");
-            const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
-            streamDeck.logger.info(`Settings: host=${settings.host}, port=${settings.port}, displayMode=${settings.displayMode}`);
-            this.settings = settings;
-            this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-            this.cachedState = null;
-            this.isOnline = false;
-            this.lastRenderedSvg = "";
-            await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
-            await ev.action.setTitle("");
-            this.stopPolling();
-            this.pollTimer = setInterval(() => {
-                this.pollAll().catch((err) => {
-                    streamDeck.logger.error(`Poll error: ${err}`);
-                });
-            }, POLL_INTERVAL_MS);
-            await this.pollAll();
-        }
-        async onWillDisappear(_ev) {
-            streamDeck.logger.info("onWillDisappear fired");
-            this.stopPolling();
-        }
-        async onDidReceiveSettings(ev) {
-            const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
-            streamDeck.logger.info(`Settings updated: host=${settings.host}, port=${settings.port}, displayMode=${settings.displayMode}`);
-            this.settings = settings;
-            if (this.client) {
-                this.client.updateConnection(settings.host, settings.port, settings.apiCode);
-            }
-            else {
-                this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-            }
-            this.cachedState = null;
-            this.isOnline = false;
-            this.lastRenderedSvg = "";
-        }
-        async onKeyDown(ev) {
-            streamDeck.logger.info("onKeyDown fired");
-            if (!this.client) {
-                streamDeck.logger.warn("No client configured");
-                await ev.action.showAlert();
-                return;
-            }
-            if (!this.isOnline || !this.cachedState) {
-                streamDeck.logger.warn(`Cannot act: online=${this.isOnline}, hasState=${!!this.cachedState}`);
-                await ev.action.showAlert();
-                return;
-            }
-            const state = this.cachedState;
-            streamDeck.logger.info(`Current state: running=${state.isRunning}, talkId=${state.currentTalkId}`);
-            try {
-                if (state.isRunning) {
-                    streamDeck.logger.info(`Stopping timer talkId=${state.currentTalkId}`);
-                    const result = await this.client.stopTimer(state.currentTalkId);
-                    streamDeck.logger.info(`Stop result: ${JSON.stringify(result)}`);
-                    if (!result?.success) {
-                        await ev.action.showAlert();
-                        return;
-                    }
-                }
-                else {
-                    if (state.currentTalkId === 0) {
-                        streamDeck.logger.warn("No talk to start (end of meeting)");
-                        await ev.action.showAlert();
-                        return;
-                    }
-                    streamDeck.logger.info(`Starting timer talkId=${state.currentTalkId}`);
-                    const result = await this.client.startTimer(state.currentTalkId);
-                    streamDeck.logger.info(`Start result: ${JSON.stringify(result)}`);
-                    if (!result?.success) {
-                        await ev.action.showAlert();
-                        return;
-                    }
-                }
-                await new Promise((resolve) => setTimeout(resolve, 300));
-                await this.pollAll();
-            }
-            catch (err) {
-                streamDeck.logger.error(`onKeyDown error: ${err}`);
-                await ev.action.showAlert();
-            }
-        }
-        async pollAll() {
-            if (!this.client)
-                return;
-            const data = await this.client.getTimers();
-            if (!data) {
-                if (this.isOnline) {
-                    streamDeck.logger.warn("Lost connection to OnlyT");
-                }
-                this.isOnline = false;
-                this.cachedState = null;
-                await this.updateAllActions(renderOffline());
-                return;
-            }
-            if (!this.isOnline) {
-                streamDeck.logger.info("Connected to OnlyT");
-            }
-            this.isOnline = true;
-            const parsed = this.parseTimerData(data);
-            this.cachedState = parsed;
-            const svg = this.renderState(parsed);
-            await this.updateAllActions(svg);
-        }
-        async updateAllActions(svg) {
-            // Skip re-render if the displayed content has not changed since last poll.
-            // This keeps the Stream Deck update rate to ~1 Hz (once per displayed
-            // second) even though we poll OnlyT at 5 Hz for tight sync.
-            if (svg === this.lastRenderedSvg) {
-                return;
-            }
-            this.lastRenderedSvg = svg;
-            const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-            for (const a of this.actions) {
-                await a.setImage(encoded);
-                await a.setTitle("");
-            }
-        }
-        parseTimerData(data) {
-            const { status, timerInfo } = data;
-            const currentTalk = timerInfo.find((t) => t.talkId === status.talkId);
-            const currentTalkName = currentTalk?.talkTitle ?? "";
-            const currentTalkDuration = currentTalk?.actualDurationSecs ?? status.targetSeconds;
-            const closingSecs = currentTalk?.closingSecs ?? status.closingSecs;
-            const elapsedSecs = parseTimeSpan(status.timeElapsed);
-            const remainingSecs = status.targetSeconds - elapsedSecs;
-            const isOvertime = remainingSecs < 0;
-            return {
-                isRunning: status.isRunning,
-                isPaused: status.isPaused,
-                currentTalkId: status.talkId,
-                currentTalkName,
-                remainingSecs,
-                targetSecs: status.targetSeconds,
-                closingSecs,
-                isOvertime,
-                nextTalkName: currentTalkName,
-                nextTalkDurationSecs: currentTalkDuration,
-            };
+        mergeSettings(persisted) {
+            return { ...DEFAULT_SETTINGS, ...(persisted ?? {}) };
         }
         renderState(state) {
             if (state.isRunning) {
                 if (this.settings.displayMode === "dynamic") {
-                    return renderRunningDynamic(state.currentTalkName, state.remainingSecs, state.targetSecs);
+                    return renderRunningDynamic(state.currentTalkName, state.remainingSecs, state.targetSecs, this.settings.showTitle);
                 }
                 if (this.settings.displayMode === "radial") {
                     return renderRunningRadial(state.currentTalkName, state.remainingSecs, state.targetSecs);
                 }
-                return renderRunning(state.currentTalkName, state.remainingSecs, state.closingSecs);
+                return renderRunning(state.currentTalkName, state.remainingSecs, state.closingSecs, this.settings.showTitle);
             }
             if (state.currentTalkId === 0) {
                 return renderEndOfMeeting();
             }
-            return renderReady(state.currentTalkName, state.nextTalkDurationSecs);
+            return renderReady(state.currentTalkName, state.nextTalkDurationSecs, this.settings.showTitle);
         }
-        stopPolling() {
-            if (this.pollTimer) {
-                clearInterval(this.pollTimer);
-                this.pollTimer = null;
+        async onKeyPress(state, ev) {
+            if (!this.client)
+                return;
+            streamDeck.logger.info(`TimerControl press: running=${state.isRunning}, talkId=${state.currentTalkId}`);
+            if (state.isRunning) {
+                streamDeck.logger.info(`Stopping timer talkId=${state.currentTalkId}`);
+                const result = await this.client.stopTimer(state.currentTalkId);
+                streamDeck.logger.info(`Stop result: ${JSON.stringify(result)}`);
+                if (!result?.success) {
+                    await ev.action.showAlert();
+                    return;
+                }
             }
+            else {
+                if (state.currentTalkId === 0) {
+                    streamDeck.logger.warn("No talk to start (end of meeting)");
+                    await ev.action.showAlert();
+                    return;
+                }
+                streamDeck.logger.info(`Starting timer talkId=${state.currentTalkId}`);
+                const result = await this.client.startTimer(state.currentTalkId);
+                streamDeck.logger.info(`Start result: ${JSON.stringify(result)}`);
+                if (!result?.success) {
+                    await ev.action.showAlert();
+                    return;
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await this.refresh();
+        }
+    });
+    return _classThis;
+})();
+
+/**
+ * Minimalist Stream Deck action for OnlyT.
+ * No talk name, no countdown - just a neutral white play glyph when the
+ * timer is stopped and a stop glyph when it's running. Pressing the button
+ * toggles start/stop against OnlyT exactly like the full Timer Control
+ * action, so operators can dedicate a key purely to "go / halt".
+ */
+let StartStopOnly = (() => {
+    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.start-stop" })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = BaseOnlyTAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        renderState(state) {
+            if (state.isRunning) {
+                return renderStopGlyph();
+            }
+            if (state.currentTalkId === 0) {
+                return renderEndOfMeeting();
+            }
+            return renderPlayGlyph();
+        }
+        async onKeyPress(state, ev) {
+            if (!this.client)
+                return;
+            streamDeck.logger.info(`StartStopOnly press: running=${state.isRunning}, talkId=${state.currentTalkId}`);
+            if (state.isRunning) {
+                const result = await this.client.stopTimer(state.currentTalkId);
+                streamDeck.logger.info(`Stop result: ${JSON.stringify(result)}`);
+                if (!result?.success) {
+                    await ev.action.showAlert();
+                    return;
+                }
+            }
+            else {
+                if (state.currentTalkId === 0) {
+                    streamDeck.logger.warn("No talk to start (end of meeting)");
+                    await ev.action.showAlert();
+                    return;
+                }
+                const result = await this.client.startTimer(state.currentTalkId);
+                streamDeck.logger.info(`Start result: ${JSON.stringify(result)}`);
+                if (!result?.success) {
+                    await ev.action.showAlert();
+                    return;
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await this.refresh();
+        }
+    });
+    return _classThis;
+})();
+
+/**
+ * Display-only Stream Deck action for OnlyT.
+ * Shows the current talk name in large white text, wrapped over up to
+ * 3 lines. No time, no controls. Pressing the button does nothing (the
+ * base class provides a no-op `onKeyPress`), so this is purely a live
+ * label the operator can glance at.
+ */
+let ItemTitles = (() => {
+    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.item-titles" })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = BaseOnlyTAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        renderState(state) {
+            if (state.currentTalkId === 0) {
+                return renderEndOfMeeting();
+            }
+            return renderTitleOnly(state.currentTalkName);
         }
     });
     return _classThis;
 })();
 
 streamDeck.actions.registerAction(new TimerControl());
+streamDeck.actions.registerAction(new StartStopOnly());
+streamDeck.actions.registerAction(new ItemTitles());
 streamDeck.connect();

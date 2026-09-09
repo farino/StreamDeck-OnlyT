@@ -2,7 +2,7 @@
 	"$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
 	"UUID": "com.farino.streamdeck-onlyt",
 	"Name": "Meeting Timer for OnlyT",
-	"Version": "1.1.0.0",
+	"Version": "1.2.0.0",
 	"Author": "Farino",
 	"URL": "https://github.com/farino/StreamDeck-OnlyT/",
 	"Description": "Control the OnlyT meeting timer from your Stream Deck. Start, stop, and monitor countdown timers with live colour-coded status. Third-party plugin - not affiliated with OnlyT.",
@@ -34,6 +34,40 @@
 				"Keypad"
 			],
 			"PropertyInspectorPath": "ui/timer-settings.html",
+			"States": [
+				{
+					"Image": "imgs/actions/timer/key",
+					"TitleAlignment": "middle",
+					"Title": ""
+				}
+			]
+		},
+		{
+			"Name": "Start & Stop Only",
+			"UUID": "com.farino.streamdeck-onlyt.start-stop",
+			"Icon": "imgs/actions/timer/icon",
+			"Tooltip": "Start or stop the current OnlyT talk. Shows a play or stop glyph only - no countdown.",
+			"Controllers": [
+				"Keypad"
+			],
+			"PropertyInspectorPath": "ui/start-stop-settings.html",
+			"States": [
+				{
+					"Image": "imgs/actions/timer/key",
+					"TitleAlignment": "middle",
+					"Title": ""
+				}
+			]
+		},
+		{
+			"Name": "Item Titles Only",
+			"UUID": "com.farino.streamdeck-onlyt.item-titles",
+			"Icon": "imgs/actions/timer/icon",
+			"Tooltip": "Display the current OnlyT talk name in large white text. Read-only - pressing does nothing.",
+			"Controllers": [
+				"Keypad"
+			],
+			"PropertyInspectorPath": "ui/item-titles-settings.html",
 			"States": [
 				{
 					"Image": "imgs/actions/timer/key",

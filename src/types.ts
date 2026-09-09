@@ -10,21 +10,46 @@
 export type DisplayMode = "default" | "dynamic" | "radial";
 
 /**
- * Per-action-instance settings persisted by Stream Deck.
+ * OnlyT connection settings shared by every action in the plugin.
+ * Individual actions extend this with their own display options.
  */
-export type TimerSettings = {
+export type ConnectionSettings = {
 	host: string;
 	port: number;
 	apiCode: string;
-	displayMode: DisplayMode;
 };
 
-export const DEFAULT_SETTINGS: TimerSettings = {
+export const DEFAULT_CONNECTION: ConnectionSettings = {
 	host: "127.0.0.1",
 	port: 8096,
 	apiCode: "",
-	displayMode: "default",
 };
+
+/**
+ * Per-action-instance settings persisted by Stream Deck for the
+ * Timer Control action (full countdown display with mode + title toggle).
+ */
+export type TimerSettings = ConnectionSettings & {
+	displayMode: DisplayMode;
+	/** Show the current talk name above the time (Default and Dynamic modes only). */
+	showTitle: boolean;
+};
+
+export const DEFAULT_SETTINGS: TimerSettings = {
+	...DEFAULT_CONNECTION,
+	displayMode: "default",
+	showTitle: true,
+};
+
+/**
+ * Settings for the "Start & Stop Only" action - connection only, no display options.
+ */
+export type StartStopSettings = ConnectionSettings;
+
+/**
+ * Settings for the "Item Titles Only" action - connection only, no display options.
+ */
+export type ItemTitlesSettings = ConnectionSettings;
 
 /**
  * GET /api/v4/timers/ response shape from OnlyT.
