@@ -521,12 +521,13 @@ export function renderEndOfMeeting(): string {
 /**
  * White "OnlyT" branding label rendered at the top of the Start & Stop tile
  * so a button placed on its own on a Stream Deck still identifies which app
- * it's driving.
+ * it's driving. Font size matches the Item Titles Only renderer for visual
+ * consistency across the plugin's read-out tiles.
  */
 function onlyTBrandLabel(): string {
 	return (
-		`<text x="72" y="24" text-anchor="middle" font-family="Arial,sans-serif" ` +
-		`font-size="16" font-weight="bold" fill="${COLOURS.textPrimary}">OnlyT</text>`
+		`<text x="72" y="32" text-anchor="middle" font-family="Arial,sans-serif" ` +
+		`font-size="${TITLE_ONLY_FONT_SIZE}" font-weight="bold" fill="${COLOURS.textPrimary}">OnlyT</text>`
 	);
 }
 
