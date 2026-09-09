@@ -9371,6 +9371,67 @@ function renderTitle(text, fontSize, colour, centreY) {
         `<text x="72" y="${y2}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="bold" fill="${colour}">${escXml(lines[1])}</text>`);
 }
 /**
+ * Visual centre of a text glyph relative to its baseline y.
+ * Text baselines sit near the bottom of the glyph, so the visible centre is
+ * roughly 35% of the font size above the baseline.
+ */
+function textVisualCentre(baselineY, fontSize) {
+    return baselineY - fontSize * 0.35;
+}
+/**
+ * Decide the ink colour for a text element sitting over the Dynamic fill,
+ * based on where the fill's top edge is:
+ *   - if the fill top is at or above the text's visual centre, the text sits
+ *     inside the fill and must render in BLACK.
+ *   - otherwise the text sits on the exposed dark tile and must render in
+ *     WHITE.
+ */
+function inkColourForFillTop(refY, fillTop) {
+    return fillTop <= refY ? "#000000" : "#ffffff";
+}
+/**
+ * Render a single Dynamic-mode text element with the correct base colour for
+ * the start-of-second fill position, and (if the fill's top edge crosses this
+ * text during the 1 s animation) an SMIL <set> that snaps the colour at the
+ * exact fractional time when the fill edge hits the text's visual centre.
+ * This keeps the text readable throughout the drain without needing clip-path
+ * or mask support in the renderer.
+ */
+function dynamicText(text, x, baselineY, fontSize, prevFillTop, currFillTop) {
+    const refY = textVisualCentre(baselineY, fontSize);
+    const startColour = inkColourForFillTop(refY, prevFillTop);
+    const endColour = inkColourForFillTop(refY, currFillTop);
+    const attrs = `x="${x}" y="${baselineY}" text-anchor="middle" font-family="Arial,sans-serif" ` +
+        `font-size="${fontSize}" font-weight="bold"`;
+    if (startColour === endColour) {
+        return `<text ${attrs} fill="${startColour}">${escXml(text)}</text>`;
+    }
+    // Fill edge crosses this text during the 1 s animation. Snap the colour at
+    // the exact fractional time when fillTop == refY, so the swap tracks the
+    // fill's visual position.
+    let frac = (refY - prevFillTop) / (currFillTop - prevFillTop);
+    frac = Math.max(0.001, Math.min(0.999, frac));
+    return `<text ${attrs} fill="${startColour}">${escXml(text)}` +
+        `<set attributeName="fill" to="${endColour}" begin="${frac.toFixed(3)}s" fill="freeze"/>` +
+        `</text>`;
+}
+/**
+ * Dynamic-mode variant of renderTitle: renders one or two lines using
+ * `dynamicText` so each line picks the right ink colour and animates its own
+ * snap independently of the fill rect.
+ */
+function renderDynamicTitle(text, fontSize, centreY, prevFillTop, currFillTop) {
+    const lines = splitTitle(text);
+    const lineHeight = fontSize + 2;
+    if (lines.length === 1) {
+        return dynamicText(lines[0], 72, centreY, fontSize, prevFillTop, currFillTop);
+    }
+    const y1 = centreY - lineHeight / 2 + fontSize / 3;
+    const y2 = y1 + lineHeight;
+    return (dynamicText(lines[0], 72, y1, fontSize, prevFillTop, currFillTop) +
+        dynamicText(lines[1], 72, y2, fontSize, prevFillTop, currFillTop));
+}
+/**
  * Render the "ready / stopped" state.
  * Shows the current talk name, its predefined duration, and a play triangle.
  */
@@ -9421,23 +9482,24 @@ function renderRunning(talkName, remainingSecs, closingSecs) {
 }
 /**
  * Render the "running" state in Dynamic mode: a coloured fill anchored to the
- * bottom of the tile that drains as the timer counts down. Title and time are
- * rendered TWICE inside two SVG clip-paths that animate in lockstep with the
- * fill: a white layer is only visible on the dark exposed area above the fill,
- * and a black layer is only visible where the coloured fill exists. The result
- * is a per-pixel colour inversion that keeps text readable regardless of what
- * the fill is doing.
+ * bottom of the tile that drains as the timer counts down, with title and
+ * time drawn on top and their colour inverted to match whichever background
+ * they are currently over.
  *
  * Colour thresholds:
  *   remaining > target/2      -> green
  *   0 < remaining <= target/2 -> orange
  *   remaining <= 0            -> deep red, fill snaps to full height
  *
- * The fill and the two clip-path rects all share the same pair of <animate>
- * tags on `y` and `height`, interpolating from the previous second's values
- * to the current ones over 1s with `fill="freeze"`. This gives a smooth drain
- * (and a smooth text colour flip at the fill edge) even though we only
- * re-emit the SVG once per displayed second.
+ * How the text stays readable:
+ *   - The fill rect animates its `y` and `height` from the previous second's
+ *     values to the current ones over 1 s using SMIL <animate>.
+ *   - Each text element picks its base ink colour from the start-of-second
+ *     fill position (BLACK if the fill covers the text, WHITE otherwise).
+ *   - If the fill's top edge crosses the text during this second, an SMIL
+ *     <set> snaps the ink colour to the end-of-second value at the exact
+ *     fractional moment of the crossover, so the swap tracks the fill edge
+ *     without needing clip-path or mask support in the renderer.
  */
 function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
     const isOvertime = remainingSecs <= 0;
@@ -9468,40 +9530,14 @@ function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
     const displayTime = isOvertime
         ? `+${formatTime(Math.abs(remainingSecs))}`
         : formatTime(remainingSecs);
-    // Two clip-paths track the fill edge so the black/white text swap happens
-    // exactly where the fill's top edge is, on every animation frame:
-    //   - insideFill: same geometry as the fill rect  (clips the BLACK layer)
-    //   - outsideFill: y=0 down to the fill's top edge (clips the WHITE layer)
-    const defs = `<defs>` +
-        `<clipPath id="insideFill">` +
-        `<rect x="0" width="${SIZE}" y="${pY}" height="${pH}">` +
-        `<animate attributeName="y" from="${pY}" to="${cY}" dur="1s" fill="freeze"/>` +
-        `<animate attributeName="height" from="${pH}" to="${cH}" dur="1s" fill="freeze"/>` +
-        `</rect>` +
-        `</clipPath>` +
-        `<clipPath id="outsideFill">` +
-        `<rect x="0" y="0" width="${SIZE}" height="${pY}">` +
-        `<animate attributeName="height" from="${pY}" to="${cY}" dur="1s" fill="freeze"/>` +
-        `</rect>` +
-        `</clipPath>` +
-        `</defs>`;
     const fillRect = `<rect x="0" width="${SIZE}" y="${pY}" height="${pH}" fill="${fillColour}">` +
         `<animate attributeName="y" from="${pY}" to="${cY}" dur="1s" fill="freeze"/>` +
         `<animate attributeName="height" from="${pH}" to="${cH}" dur="1s" fill="freeze"/>` +
         `</rect>`;
-    const timeText = (colour) => `<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif" ` +
-        `font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>`;
     return wrapSvg(`
-		${defs}
 		${fillRect}
-		<g clip-path="url(#outsideFill)">
-			${renderTitle(name, 16, "#ffffff", 28)}
-			${timeText("#ffffff")}
-		</g>
-		<g clip-path="url(#insideFill)">
-			${renderTitle(name, 16, "#000000", 28)}
-			${timeText("#000000")}
-		</g>
+		${renderDynamicTitle(name, 16, 28, prevY, currY)}
+		${dynamicText(displayTime, 72, 92, 40, prevY, currY)}
 	`);
 }
 /**
