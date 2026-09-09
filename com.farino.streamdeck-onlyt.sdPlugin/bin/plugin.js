@@ -9286,6 +9286,10 @@ const COLOURS = {
     timeGreen: "#00d967",
     timeOrange: "#f5a623",
     timeRed: "#ff4d4d",
+    // Deeper, more saturated red used specifically for the Dynamic-mode
+    // overtime fill so it reads as a genuine "you have gone over" alarm
+    // instead of the paler text-friendly `timeRed`.
+    dynamicRed: "#dc2626",
 };
 const MAX_CHARS_SINGLE_LINE = 12;
 const MAX_CHARS_PER_LINE = 14;
@@ -9304,16 +9308,6 @@ function escXml(str) {
  */
 function wrapSvg(content) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">${content}</svg>`;
-}
-/**
- * SVG <defs> block containing a soft black drop-shadow filter used to keep
- * white foreground text legible when it sits over a coloured fill in Dynamic
- * mode. Reference with `filter="url(#ds)"`.
- */
-function dropShadowDefs() {
-    return `<defs><filter id="ds" x="-20%" y="-20%" width="140%" height="140%">` +
-        `<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.65"/>` +
-        `</filter></defs>`;
 }
 /**
  * Clamp a number between min and max.
@@ -9427,26 +9421,30 @@ function renderRunning(talkName, remainingSecs, closingSecs) {
 }
 /**
  * Render the "running" state in Dynamic mode: a coloured fill anchored to the
- * bottom of the tile that drains as the timer counts down, with the title and
- * time drawn in white on top (protected by a drop-shadow so they stay legible
- * regardless of fill height or colour).
+ * bottom of the tile that drains as the timer counts down. Title and time are
+ * rendered TWICE inside two SVG clip-paths that animate in lockstep with the
+ * fill: a white layer is only visible on the dark exposed area above the fill,
+ * and a black layer is only visible where the coloured fill exists. The result
+ * is a per-pixel colour inversion that keeps text readable regardless of what
+ * the fill is doing.
  *
  * Colour thresholds:
  *   remaining > target/2      -> green
  *   0 < remaining <= target/2 -> orange
- *   remaining <= 0            -> red, fill snaps to full height
+ *   remaining <= 0            -> deep red, fill snaps to full height
  *
- * The fill uses two inline SVG <animate> tags to interpolate `y` and `height`
- * from the previous second's values to the current ones over 1s, which gives
- * a smooth drain even though we only re-emit the SVG once per displayed
- * second.
+ * The fill and the two clip-path rects all share the same pair of <animate>
+ * tags on `y` and `height`, interpolating from the previous second's values
+ * to the current ones over 1s with `fill="freeze"`. This gives a smooth drain
+ * (and a smooth text colour flip at the fill edge) even though we only
+ * re-emit the SVG once per displayed second.
  */
 function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
     const isOvertime = remainingSecs <= 0;
     const safeTarget = targetSecs > 0 ? targetSecs : 1;
     let fillColour;
     if (isOvertime) {
-        fillColour = COLOURS.timeRed;
+        fillColour = COLOURS.dynamicRed;
     }
     else if (remainingSecs <= safeTarget / 2) {
         fillColour = COLOURS.timeOrange;
@@ -9462,25 +9460,47 @@ function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
     const prevHeight = prevFrac * SIZE;
     const currY = SIZE - currHeight;
     const prevY = SIZE - prevHeight;
+    const pY = prevY.toFixed(2);
+    const cY = currY.toFixed(2);
+    const pH = prevHeight.toFixed(2);
+    const cH = currHeight.toFixed(2);
     const name = talkName || "Running";
     const displayTime = isOvertime
         ? `+${formatTime(Math.abs(remainingSecs))}`
         : formatTime(remainingSecs);
-    // The fill rect animates smoothly between the previous second's dimensions
-    // and the current second's, freezing at the current values until the next
-    // re-render arrives. `fill="freeze"` keeps the end-state so a boundary
-    // transition (halfway/overtime) doesn't snap back mid-animation.
-    const fillRect = `<rect x="0" width="${SIZE}" y="${prevY.toFixed(2)}" height="${prevHeight.toFixed(2)}" fill="${fillColour}">` +
-        `<animate attributeName="y" from="${prevY.toFixed(2)}" to="${currY.toFixed(2)}" dur="1s" fill="freeze"/>` +
-        `<animate attributeName="height" from="${prevHeight.toFixed(2)}" to="${currHeight.toFixed(2)}" dur="1s" fill="freeze"/>` +
+    // Two clip-paths track the fill edge so the black/white text swap happens
+    // exactly where the fill's top edge is, on every animation frame:
+    //   - insideFill: same geometry as the fill rect  (clips the BLACK layer)
+    //   - outsideFill: y=0 down to the fill's top edge (clips the WHITE layer)
+    const defs = `<defs>` +
+        `<clipPath id="insideFill">` +
+        `<rect x="0" width="${SIZE}" y="${pY}" height="${pH}">` +
+        `<animate attributeName="y" from="${pY}" to="${cY}" dur="1s" fill="freeze"/>` +
+        `<animate attributeName="height" from="${pH}" to="${cH}" dur="1s" fill="freeze"/>` +
+        `</rect>` +
+        `</clipPath>` +
+        `<clipPath id="outsideFill">` +
+        `<rect x="0" y="0" width="${SIZE}" height="${pY}">` +
+        `<animate attributeName="height" from="${pY}" to="${cY}" dur="1s" fill="freeze"/>` +
+        `</rect>` +
+        `</clipPath>` +
+        `</defs>`;
+    const fillRect = `<rect x="0" width="${SIZE}" y="${pY}" height="${pH}" fill="${fillColour}">` +
+        `<animate attributeName="y" from="${pY}" to="${cY}" dur="1s" fill="freeze"/>` +
+        `<animate attributeName="height" from="${pH}" to="${cH}" dur="1s" fill="freeze"/>` +
         `</rect>`;
+    const timeText = (colour) => `<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif" ` +
+        `font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>`;
     return wrapSvg(`
-		${dropShadowDefs()}
+		${defs}
 		${fillRect}
-		<g filter="url(#ds)">
-			${renderTitle(name, 16, COLOURS.textPrimary, 28)}
-			<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif"
-				font-size="40" font-weight="bold" fill="${COLOURS.textPrimary}">${displayTime}</text>
+		<g clip-path="url(#outsideFill)">
+			${renderTitle(name, 16, "#ffffff", 28)}
+			${timeText("#ffffff")}
+		</g>
+		<g clip-path="url(#insideFill)">
+			${renderTitle(name, 16, "#000000", 28)}
+			${timeText("#000000")}
 		</g>
 	`);
 }
