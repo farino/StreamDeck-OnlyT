@@ -47,7 +47,8 @@
 			font-size: 11px;
 		}
 
-		.sdpi-item input {
+		.sdpi-item input,
+		.sdpi-item select {
 			flex: 1;
 			background: var(--input-bg);
 			border: 1px solid var(--border);
@@ -58,7 +59,18 @@
 			outline: none;
 		}
 
-		.sdpi-item input:focus {
+		.sdpi-item select {
+			appearance: none;
+			-webkit-appearance: none;
+			background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M0 0l5 6 5-6z' fill='%23999'/></svg>");
+			background-repeat: no-repeat;
+			background-position: right 8px center;
+			padding-right: 24px;
+			cursor: pointer;
+		}
+
+		.sdpi-item input:focus,
+		.sdpi-item select:focus {
 			border-color: var(--accent);
 		}
 
@@ -130,6 +142,17 @@
 </head>
 <body>
 	<div class="sdpi-wrapper">
+		<div class="sdpi-heading">Display</div>
+
+		<div class="sdpi-item">
+			<label for="displayMode">Mode</label>
+			<select id="displayMode">
+				<option value="default">Default (transparent, coloured text)</option>
+				<option value="dynamic">Dynamic (draining coloured fill)</option>
+			</select>
+		</div>
+		<div class="sdpi-hint">Dynamic shows the remaining time as a bar that drains green &rarr; orange (halfway) &rarr; red (overtime).</div>
+
 		<div class="sdpi-heading">OnlyT Connection</div>
 
 		<div class="sdpi-item">
@@ -165,7 +188,7 @@
 	<script>
 		const $SD = window.$SD;
 		let uuid = "";
-		let settings = { host: "localhost", port: 8096, apiCode: "" };
+		let settings = { host: "localhost", port: 8096, apiCode: "", displayMode: "default" };
 
 		/**
 		 * Connect to Stream Deck property inspector API.
@@ -202,6 +225,7 @@
 			document.getElementById("host").addEventListener("change", onFieldChanged);
 			document.getElementById("port").addEventListener("change", onFieldChanged);
 			document.getElementById("apiCode").addEventListener("change", onFieldChanged);
+			document.getElementById("displayMode").addEventListener("change", onFieldChanged);
 
 			testConnection();
 		}
@@ -210,12 +234,14 @@
 			document.getElementById("host").value = settings.host || "";
 			document.getElementById("port").value = settings.port || 8096;
 			document.getElementById("apiCode").value = settings.apiCode || "";
+			document.getElementById("displayMode").value = settings.displayMode || "default";
 		}
 
 		function onFieldChanged() {
 			settings.host = document.getElementById("host").value || "localhost";
 			settings.port = parseInt(document.getElementById("port").value, 10) || 8096;
 			settings.apiCode = document.getElementById("apiCode").value || "";
+			settings.displayMode = document.getElementById("displayMode").value || "default";
 
 			if (window._ws && window._ws.readyState === WebSocket.OPEN) {
 				window._ws.send(JSON.stringify({

@@ -11,6 +11,7 @@ import { OnlyTClient } from "../services/onlyt-client";
 import {
 	renderReady,
 	renderRunning,
+	renderRunningDynamic,
 	renderOffline,
 	renderConnecting,
 	renderEndOfMeeting,
@@ -40,13 +41,15 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 	private cachedState: ParsedTimerState | null = null;
 	private isOnline = false;
 	private lastRenderedSvg = "";
+	private settings: TimerSettings = { ...DEFAULT_SETTINGS };
 
 	override async onWillAppear(ev: WillAppearEvent<TimerSettings>): Promise<void> {
 		streamDeck.logger.info("onWillAppear fired");
 
 		const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
-		streamDeck.logger.info(`Settings: host=${settings.host}, port=${settings.port}`);
+		streamDeck.logger.info(`Settings: host=${settings.host}, port=${settings.port}, displayMode=${settings.displayMode}`);
 
+		this.settings = settings;
 		this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
 		this.cachedState = null;
 		this.isOnline = false;
@@ -72,7 +75,9 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 
 	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<TimerSettings>): Promise<void> {
 		const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
-		streamDeck.logger.info(`Settings updated: host=${settings.host}, port=${settings.port}`);
+		streamDeck.logger.info(`Settings updated: host=${settings.host}, port=${settings.port}, displayMode=${settings.displayMode}`);
+
+		this.settings = settings;
 
 		if (this.client) {
 			this.client.updateConnection(settings.host, settings.port, settings.apiCode);
@@ -206,6 +211,13 @@ export class TimerControl extends SingletonAction<TimerSettings> {
 
 	private renderState(state: ParsedTimerState): string {
 		if (state.isRunning) {
+			if (this.settings.displayMode === "dynamic") {
+				return renderRunningDynamic(
+					state.currentTalkName,
+					state.remainingSecs,
+					state.targetSecs,
+				);
+			}
 			return renderRunning(
 				state.currentTalkName,
 				state.remainingSecs,

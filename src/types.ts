@@ -1,16 +1,26 @@
 /**
+ * Visual mode used when rendering the key.
+ *  - "default": transparent background, coloured text (original look).
+ *  - "dynamic": coloured fill bar that drains as the timer counts down,
+ *               transitioning green -> orange (halfway) -> red (overtime).
+ */
+export type DisplayMode = "default" | "dynamic";
+
+/**
  * Per-action-instance settings persisted by Stream Deck.
  */
 export type TimerSettings = {
 	host: string;
 	port: number;
 	apiCode: string;
+	displayMode: DisplayMode;
 };
 
 export const DEFAULT_SETTINGS: TimerSettings = {
 	host: "127.0.0.1",
 	port: 8096,
 	apiCode: "",
+	displayMode: "default",
 };
 
 /**

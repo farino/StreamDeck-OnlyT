@@ -9252,6 +9252,7 @@ const DEFAULT_SETTINGS = {
     host: "127.0.0.1",
     port: 8096,
     apiCode: "",
+    displayMode: "default",
 };
 /**
  * Parse a .NET TimeSpan string "HH:MM:SS.fff" into total seconds.
@@ -9303,6 +9304,22 @@ function escXml(str) {
  */
 function wrapSvg(content) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">${content}</svg>`;
+}
+/**
+ * SVG <defs> block containing a soft black drop-shadow filter used to keep
+ * white foreground text legible when it sits over a coloured fill in Dynamic
+ * mode. Reference with `filter="url(#ds)"`.
+ */
+function dropShadowDefs() {
+    return `<defs><filter id="ds" x="-20%" y="-20%" width="140%" height="140%">` +
+        `<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.65"/>` +
+        `</filter></defs>`;
+}
+/**
+ * Clamp a number between min and max.
+ */
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
 }
 /**
  * Split a title into up to 2 lines, breaking at word boundaries when possible.
@@ -9409,6 +9426,65 @@ function renderRunning(talkName, remainingSecs, closingSecs) {
 	`);
 }
 /**
+ * Render the "running" state in Dynamic mode: a coloured fill anchored to the
+ * bottom of the tile that drains as the timer counts down, with the title and
+ * time drawn in white on top (protected by a drop-shadow so they stay legible
+ * regardless of fill height or colour).
+ *
+ * Colour thresholds:
+ *   remaining > target/2      -> green
+ *   0 < remaining <= target/2 -> orange
+ *   remaining <= 0            -> red, fill snaps to full height
+ *
+ * The fill uses two inline SVG <animate> tags to interpolate `y` and `height`
+ * from the previous second's values to the current ones over 1s, which gives
+ * a smooth drain even though we only re-emit the SVG once per displayed
+ * second.
+ */
+function renderRunningDynamic(talkName, remainingSecs, targetSecs) {
+    const isOvertime = remainingSecs <= 0;
+    const safeTarget = targetSecs > 0 ? targetSecs : 1;
+    let fillColour;
+    if (isOvertime) {
+        fillColour = COLOURS.timeRed;
+    }
+    else if (remainingSecs <= safeTarget / 2) {
+        fillColour = COLOURS.timeOrange;
+    }
+    else {
+        fillColour = COLOURS.timeGreen;
+    }
+    // Fraction of the tile covered by the fill, anchored to the bottom.
+    // Overtime forces a full-height red fill.
+    const currFrac = isOvertime ? 1 : clamp(remainingSecs / safeTarget, 0, 1);
+    const prevFrac = isOvertime ? 1 : clamp((remainingSecs + 1) / safeTarget, 0, 1);
+    const currHeight = currFrac * SIZE;
+    const prevHeight = prevFrac * SIZE;
+    const currY = SIZE - currHeight;
+    const prevY = SIZE - prevHeight;
+    const name = talkName || "Running";
+    const displayTime = isOvertime
+        ? `+${formatTime(Math.abs(remainingSecs))}`
+        : formatTime(remainingSecs);
+    // The fill rect animates smoothly between the previous second's dimensions
+    // and the current second's, freezing at the current values until the next
+    // re-render arrives. `fill="freeze"` keeps the end-state so a boundary
+    // transition (halfway/overtime) doesn't snap back mid-animation.
+    const fillRect = `<rect x="0" width="${SIZE}" y="${prevY.toFixed(2)}" height="${prevHeight.toFixed(2)}" fill="${fillColour}">` +
+        `<animate attributeName="y" from="${prevY.toFixed(2)}" to="${currY.toFixed(2)}" dur="1s" fill="freeze"/>` +
+        `<animate attributeName="height" from="${prevHeight.toFixed(2)}" to="${currHeight.toFixed(2)}" dur="1s" fill="freeze"/>` +
+        `</rect>`;
+    return wrapSvg(`
+		${dropShadowDefs()}
+		${fillRect}
+		<g filter="url(#ds)">
+			${renderTitle(name, 16, COLOURS.textPrimary, 28)}
+			<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif"
+				font-size="40" font-weight="bold" fill="${COLOURS.textPrimary}">${displayTime}</text>
+		</g>
+	`);
+}
+/**
  * Render the "offline" state when OnlyT is unreachable.
  * Shows a warning triangle above a two-line "OnlyT / Offline" cascade.
  */
@@ -9483,10 +9559,12 @@ let TimerControl = (() => {
         cachedState = null;
         isOnline = false;
         lastRenderedSvg = "";
+        settings = { ...DEFAULT_SETTINGS };
         async onWillAppear(ev) {
             streamDeck.logger.info("onWillAppear fired");
             const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
-            streamDeck.logger.info(`Settings: host=${settings.host}, port=${settings.port}`);
+            streamDeck.logger.info(`Settings: host=${settings.host}, port=${settings.port}, displayMode=${settings.displayMode}`);
+            this.settings = settings;
             this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
             this.cachedState = null;
             this.isOnline = false;
@@ -9507,7 +9585,8 @@ let TimerControl = (() => {
         }
         async onDidReceiveSettings(ev) {
             const settings = { ...DEFAULT_SETTINGS, ...ev.payload.settings };
-            streamDeck.logger.info(`Settings updated: host=${settings.host}, port=${settings.port}`);
+            streamDeck.logger.info(`Settings updated: host=${settings.host}, port=${settings.port}, displayMode=${settings.displayMode}`);
+            this.settings = settings;
             if (this.client) {
                 this.client.updateConnection(settings.host, settings.port, settings.apiCode);
             }
@@ -9624,6 +9703,9 @@ let TimerControl = (() => {
         }
         renderState(state) {
             if (state.isRunning) {
+                if (this.settings.displayMode === "dynamic") {
+                    return renderRunningDynamic(state.currentTalkName, state.remainingSecs, state.targetSecs);
+                }
                 return renderRunning(state.currentTalkName, state.remainingSecs, state.closingSecs);
             }
             if (state.currentTalkId === 0) {
