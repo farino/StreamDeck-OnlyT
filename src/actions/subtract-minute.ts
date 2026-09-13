@@ -47,7 +47,7 @@ export class SubtractMinute extends BaseOnlyTAction<AdjustTimeSettings> {
 		);
 
 		const result = await this.client.changeDuration(state.currentTalkId, DELTA_SECS);
-		if (!result) {
+		if (result === null) {
 			await ev.action.showAlert();
 			return;
 		}

@@ -10220,7 +10220,7 @@ let TimerControl = (() => {
                 streamDeck.logger.info(`Stopping timer talkId=${state.currentTalkId}`);
                 const result = await this.client.stopTimer(state.currentTalkId);
                 streamDeck.logger.info(`Stop result: ${JSON.stringify(result)}`);
-                if (!result?.success) {
+                if (result === null) {
                     await ev.action.showAlert();
                     return;
                 }
@@ -10234,7 +10234,7 @@ let TimerControl = (() => {
                 streamDeck.logger.info(`Starting timer talkId=${state.currentTalkId}`);
                 const result = await this.client.startTimer(state.currentTalkId);
                 streamDeck.logger.info(`Start result: ${JSON.stringify(result)}`);
-                if (!result?.success) {
+                if (result === null) {
                     await ev.action.showAlert();
                     return;
                 }
@@ -10284,7 +10284,7 @@ let StartStopOnly = (() => {
             if (state.isRunning) {
                 const result = await this.client.stopTimer(state.currentTalkId);
                 streamDeck.logger.info(`Stop result: ${JSON.stringify(result)}`);
-                if (!result?.success) {
+                if (result === null) {
                     await ev.action.showAlert();
                     return;
                 }
@@ -10297,7 +10297,7 @@ let StartStopOnly = (() => {
                 }
                 const result = await this.client.startTimer(state.currentTalkId);
                 streamDeck.logger.info(`Start result: ${JSON.stringify(result)}`);
-                if (!result?.success) {
+                if (result === null) {
                     await ev.action.showAlert();
                     return;
                 }
@@ -10379,7 +10379,7 @@ let AddMinute = (() => {
             }
             streamDeck.logger.info(`AddMinute press: talkId=${state.currentTalkId}, delta=+${DELTA_SECS$1}s`);
             const result = await this.client.changeDuration(state.currentTalkId, DELTA_SECS$1);
-            if (!result) {
+            if (result === null) {
                 await ev.action.showAlert();
                 return;
             }
@@ -10428,7 +10428,7 @@ let SubtractMinute = (() => {
             }
             streamDeck.logger.info(`SubtractMinute press: talkId=${state.currentTalkId}, delta=${DELTA_SECS}s`);
             const result = await this.client.changeDuration(state.currentTalkId, DELTA_SECS);
-            if (!result) {
+            if (result === null) {
                 await ev.action.showAlert();
                 return;
             }

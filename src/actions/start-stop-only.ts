@@ -46,7 +46,7 @@ export class StartStopOnly extends BaseOnlyTAction<StartStopSettings> {
 		if (state.isRunning) {
 			const result = await this.client.stopTimer(state.currentTalkId);
 			streamDeck.logger.info(`Stop result: ${JSON.stringify(result)}`);
-			if (!result?.success) {
+			if (result === null) {
 				await ev.action.showAlert();
 				return;
 			}
@@ -58,7 +58,7 @@ export class StartStopOnly extends BaseOnlyTAction<StartStopSettings> {
 			}
 			const result = await this.client.startTimer(state.currentTalkId);
 			streamDeck.logger.info(`Start result: ${JSON.stringify(result)}`);
-			if (!result?.success) {
+			if (result === null) {
 				await ev.action.showAlert();
 				return;
 			}
