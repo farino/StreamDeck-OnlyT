@@ -109,6 +109,38 @@
 					"Title": ""
 				}
 			]
+		},
+		{
+			"Name": "JW Study",
+			"UUID": "com.farino.streamdeck-onlyt.jw-study",
+			"Icon": "imgs/actions/timer/icon",
+			"Tooltip": "Bring JW Library to the foreground and navigate to Personal Study.",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/timer/key",
+					"TitleAlignment": "middle",
+					"Title": ""
+				}
+			]
+		},
+		{
+			"Name": "JW Meetings",
+			"UUID": "com.farino.streamdeck-onlyt.jw-meetings",
+			"Icon": "imgs/actions/timer/icon",
+			"Tooltip": "Bring JW Library to the foreground and navigate to Meetings.",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/timer/key",
+					"TitleAlignment": "middle",
+					"Title": ""
+				}
+			]
 		}
 	]
 }
