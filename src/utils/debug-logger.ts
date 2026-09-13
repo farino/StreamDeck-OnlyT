@@ -14,7 +14,7 @@ import { join } from "path";
  * All I/O errors are silently swallowed so debug logging never breaks the
  * plugin.
  */
-const LOG_FILE = join(tmpdir(), "onlyt-debug.log");
+const LOG_FILE = join(tmpdir(), "onlyt-streamdeck-debug.log");
 const SESSION_ID = "d51016";
 
 export function debugLog(

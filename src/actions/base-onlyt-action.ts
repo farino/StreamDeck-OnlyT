@@ -95,18 +95,32 @@ export abstract class BaseOnlyTAction<
 	}
 
 	override async onKeyDown(ev: KeyDownEvent<S>): Promise<void> {
-		streamDeck.logger.info(`${this.constructor.name}.onKeyDown fired`);
+		debugLog("base-onlyt-action.ts:onKeyDown", "KEYPRESS", "onKeyDown fired", {
+			action: this.constructor.name,
+			hasClient: !!this.client,
+			isOnline: this.isOnline,
+			hasCachedState: !!this.cachedState,
+		});
 
 		if (!this.client) {
-			streamDeck.logger.warn("No client configured");
+			debugLog("base-onlyt-action.ts:onKeyDown", "ALERT", "no client", {});
 			await ev.action.showAlert();
 			return;
 		}
 
 		if (!this.isOnline || !this.cachedState) {
-			streamDeck.logger.warn(
-				`Cannot act: online=${this.isOnline}, hasState=${!!this.cachedState}`,
-			);
+			debugLog("base-onlyt-action.ts:onKeyDown", "RETRY", "no state, doing fresh poll", {
+				isOnline: this.isOnline,
+				hasCachedState: !!this.cachedState,
+			});
+			await this.refresh();
+		}
+
+		if (!this.isOnline || !this.cachedState) {
+			debugLog("base-onlyt-action.ts:onKeyDown", "ALERT", "still no state after retry", {
+				isOnline: this.isOnline,
+				hasCachedState: !!this.cachedState,
+			});
 			await ev.action.showAlert();
 			return;
 		}
@@ -114,6 +128,12 @@ export abstract class BaseOnlyTAction<
 		try {
 			await this.onKeyPress(this.cachedState, ev);
 		} catch (err) {
+			const e = err as Error;
+			debugLog("base-onlyt-action.ts:onKeyDown", "ALERT", "exception in onKeyPress", {
+				action: this.constructor.name,
+				errName: e?.name,
+				errMessage: e?.message,
+			});
 			streamDeck.logger.error(`onKeyDown error: ${err}`);
 			await ev.action.showAlert();
 		}
