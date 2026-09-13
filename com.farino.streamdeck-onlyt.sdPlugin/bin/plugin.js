@@ -13,6 +13,9 @@ import fs, { existsSync, readFileSync } from 'node:fs';
 import path, { join } from 'node:path';
 import { cwd } from 'node:process';
 import { randomUUID } from 'node:crypto';
+import { appendFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as join$1 } from 'path';
 
 /**
  * Default language supported by all i18n providers.
@@ -9178,7 +9181,50 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 };
 
+/**
+ * NDJSON file logger used while debugging the "flashing Offline" bug.
+ * Writes one JSON entry per line to a file inside the OS temp directory so
+ * the log can be collected from any PC the plugin runs on (the HTTP debug
+ * server on the developer's PC is not reachable from other machines).
+ *
+ * Path (Windows): %TEMP%\onlyt-debug.log
+ * Path (macOS/Linux): /tmp/onlyt-debug.log
+ *
+ * All I/O errors are silently swallowed so debug logging never breaks the
+ * plugin.
+ */
+const LOG_FILE = join$1(tmpdir(), "onlyt-debug.log");
+const SESSION_ID = "d51016";
+function debugLog(location, hypothesisId, message, data) {
+    try {
+        const entry = {
+            sessionId: SESSION_ID,
+            id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            timestamp: Date.now(),
+            location,
+            hypothesisId,
+            message,
+            data: data ?? {},
+        };
+        appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
+    }
+    catch {
+        // Never let debug logging break the plugin.
+    }
+}
+/** Path on disk where debug NDJSON entries are appended. Exposed for messages. */
+const DEBUG_LOG_PATH = LOG_FILE;
+
+// #endregion
 const REQUEST_TIMEOUT_MS = 3000;
+// #region agent log
+// One-time announce so the log file always contains at least a heartbeat
+// even if every request later fails silently.
+debugLog("onlyt-client.ts:module", "boot", "OnlyTClient module loaded", {
+    debugLogPath: DEBUG_LOG_PATH,
+    requestTimeoutMs: REQUEST_TIMEOUT_MS,
+});
+// #endregion
 /**
  * Node's built-in fetch resolves `localhost` to IPv6 (`::1`) first on Windows,
  * but OnlyT's HTTP listener only binds to IPv4 (`127.0.0.1`). Force IPv4 so
@@ -9197,10 +9243,32 @@ class OnlyTClient {
     constructor(host, port, apiCode = "") {
         this.baseUrl = `http://${normalizeHost(host)}:${port}`;
         this.apiCode = apiCode;
+        // #region agent log
+        // H1 + H6: capture what host the plugin is ACTUALLY targeting so we
+        // can compare against what the user typed in the PI.
+        debugLog("onlyt-client.ts:constructor", "H1_H6", "OnlyTClient constructed", {
+            rawHost: host,
+            normalizedHost: normalizeHost(host),
+            port,
+            apiCodeLength: apiCode?.length ?? 0,
+            baseUrl: this.baseUrl,
+        });
+        // #endregion
     }
     updateConnection(host, port, apiCode = "") {
         this.baseUrl = `http://${normalizeHost(host)}:${port}`;
         this.apiCode = apiCode;
+        // #region agent log
+        // H6: PI settings edits flow through here. If the plugin later uses
+        // a stale URL despite the user editing the PI, this log won't fire.
+        debugLog("onlyt-client.ts:updateConnection", "H6", "OnlyTClient connection updated", {
+            rawHost: host,
+            normalizedHost: normalizeHost(host),
+            port,
+            apiCodeLength: apiCode?.length ?? 0,
+            baseUrl: this.baseUrl,
+        });
+        // #endregion
     }
     async getTimers() {
         return this.request("GET", "/api/v4/timers/");
@@ -9211,7 +9279,10 @@ class OnlyTClient {
     async stopTimer(talkId) {
         return this.request("DELETE", `/api/v4/timers/${talkId}`);
     }
-    async request(method, path) {
+    async changeDuration(talkId, deltaSecs) {
+        return this.request("POST", `/api/v4/timers/${talkId}/duration`, { deltaSeconds: deltaSecs });
+    }
+    async request(method, path, body) {
         const url = `${this.baseUrl}${path}`;
         const headers = {
             "Accept": "application/json",
@@ -9219,23 +9290,60 @@ class OnlyTClient {
         if (this.apiCode) {
             headers["ApiCode"] = this.apiCode;
         }
+        if (body) {
+            headers["Content-Type"] = "application/json";
+        }
+        // #region agent log
+        const reqStartedAt = Date.now();
+        const reqId = `${reqStartedAt}_${Math.random().toString(36).slice(2, 8)}`;
+        let timedOut = false;
+        // #endregion
         try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+            const timeout = setTimeout(() => {
+                // #region agent log
+                timedOut = true;
+                // #endregion
+                controller.abort();
+            }, REQUEST_TIMEOUT_MS);
             streamDeck.logger.debug(`${method} ${url}`);
             const response = await fetch(url, {
                 method,
                 headers,
                 signal: controller.signal,
+                ...(body ? { body: JSON.stringify(body) } : {}),
             });
             clearTimeout(timeout);
             if (!response.ok) {
                 const body = await response.text().catch(() => "(no body)");
                 streamDeck.logger.error(`${method} ${url} -> HTTP ${response.status}: ${body}`);
+                // #region agent log
+                // H4: non-2xx after successful TCP connect - could be OnlyT returning 5xx under load.
+                debugLog("onlyt-client.ts:request", "H4", "HTTP non-ok", {
+                    reqId,
+                    method,
+                    url,
+                    status: response.status,
+                    elapsedMs: Date.now() - reqStartedAt,
+                    bodySnippet: body.slice(0, 200),
+                });
+                // #endregion
                 return null;
             }
             const text = await response.text();
             streamDeck.logger.debug(`${method} ${url} -> ${response.status} OK`);
+            // #region agent log
+            // H2 + H4: capture elapsed ms for every successful request so we can
+            // see the timing pattern - are successes fast and failures slow (timeout)?
+            debugLog("onlyt-client.ts:request", "H2_H4", "HTTP ok", {
+                reqId,
+                method,
+                url,
+                status: response.status,
+                elapsedMs: Date.now() - reqStartedAt,
+                bodyLength: text.length,
+            });
+            // #endregion
             if (!text || text.trim().length === 0) {
                 return { success: true };
             }
@@ -9243,6 +9351,25 @@ class OnlyTClient {
         }
         catch (err) {
             streamDeck.logger.error(`${method} ${url} -> Exception: ${err}`);
+            // #region agent log
+            // H1 + H2 + H3: capture the real failure signal - err name, code, and
+            // cause together with elapsed ms disambiguate DNS failure vs ECONNREFUSED
+            // vs AbortError-from-timeout vs firewall-induced ECONNRESET.
+            const e = err;
+            debugLog("onlyt-client.ts:request", "H1_H2_H3", "HTTP exception", {
+                reqId,
+                method,
+                url,
+                elapsedMs: Date.now() - reqStartedAt,
+                timedOut,
+                errName: e?.name,
+                errMessage: e?.message,
+                errCode: e?.code,
+                causeCode: e?.cause?.code,
+                causeMessage: e?.cause?.message,
+                causeErrno: e?.cause?.errno,
+            });
+            // #endregion
             return null;
         }
     }
@@ -9375,12 +9502,13 @@ function renderTitle(text, fontSize, colour, centreY) {
         `<text x="72" y="${y2}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="bold" fill="${colour}">${escXml(lines[1])}</text>`);
 }
 /**
- * Visual centre of a text glyph relative to its baseline y.
- * Text baselines sit near the bottom of the glyph, so the visible centre is
- * roughly 35% of the font size above the baseline.
+ * Top edge (cap height) of a text glyph relative to its baseline y.
+ * Used as the crossover threshold so text stays WHITE until the fill has
+ * risen completely past the entire glyph, preventing the upper portion
+ * of characters from being invisible (black on the dark tile background).
  */
-function textVisualCentre(baselineY, fontSize) {
-    return baselineY - fontSize * 0.35;
+function textTopEdge(baselineY, fontSize) {
+    return baselineY - fontSize * 0.8;
 }
 /**
  * Decide the ink colour for a text element sitting over the Dynamic fill,
@@ -9402,7 +9530,7 @@ function inkColourForFillTop(refY, fillTop) {
  * or mask support in the renderer.
  */
 function dynamicText(text, x, baselineY, fontSize, prevFillTop, currFillTop) {
-    const refY = textVisualCentre(baselineY, fontSize);
+    const refY = textTopEdge(baselineY, fontSize);
     const startColour = inkColourForFillTop(refY, prevFillTop);
     const endColour = inkColourForFillTop(refY, currFillTop);
     const attrs = `x="${x}" y="${baselineY}" text-anchor="middle" font-family="Arial,sans-serif" ` +
@@ -9698,15 +9826,16 @@ function renderConnecting() {
 }
 /**
  * Render the "end of meeting" state when all talks are done.
+ * Large tick and label so the "all done" state is unmissable on the key.
  */
 function renderEndOfMeeting() {
     return wrapSvg(`
-		<circle cx="72" cy="56" r="20" fill="none" stroke="${COLOURS.playIcon}"
-			stroke-width="3"/>
-		<polyline points="62,56 70,64 84,48" fill="none" stroke="${COLOURS.playIcon}"
-			stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-		<text x="72" y="104" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="14" font-weight="bold" fill="${COLOURS.textSecondary}">COMPLETE</text>
+		<circle cx="72" cy="56" r="36" fill="none" stroke="${COLOURS.playIcon}"
+			stroke-width="4"/>
+		<polyline points="54,56 66,68 92,40" fill="none" stroke="${COLOURS.playIcon}"
+			stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+		<text x="72" y="116" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="22" font-weight="bold" fill="${COLOURS.textSecondary}">COMPLETE</text>
 	`);
 }
 // -----------------------------------------------------------------------------
@@ -9745,12 +9874,35 @@ function renderStopGlyph() {
 		<rect x="46" y="56" width="56" height="56" rx="6" fill="${COLOURS.timeRed}"/>
 	`);
 }
+/**
+ * Render a "+1" label below the "OnlyT" brand. Shown by the "Add Minute"
+ * action to indicate pressing will add one minute to the current talk.
+ */
+function renderAddMinuteGlyph() {
+    return wrapSvg(`
+		${onlyTBrandLabel()}
+		<text x="72" y="108" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="48" font-weight="bold" fill="${COLOURS.textPrimary}">+1</text>
+	`);
+}
+/**
+ * Render a "-1" label below the "OnlyT" brand. Shown by the "Subtract
+ * Minute" action to indicate pressing will remove one minute from the
+ * current talk.
+ */
+function renderSubtractMinuteGlyph() {
+    return wrapSvg(`
+		${onlyTBrandLabel()}
+		<text x="72" y="108" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="48" font-weight="bold" fill="${COLOURS.textPrimary}">\u22121</text>
+	`);
+}
 // -----------------------------------------------------------------------------
 // Item Titles Only renderer.
 // -----------------------------------------------------------------------------
 const TITLE_ONLY_MAX_CHARS_PER_LINE = 11;
-const TITLE_ONLY_FONT_SIZE = 24;
-const TITLE_ONLY_LINE_HEIGHT = 28;
+const TITLE_ONLY_FONT_SIZE = 28;
+const TITLE_ONLY_LINE_HEIGHT = 32;
 /**
  * Word-wrap a title into up to 3 lines for the "Item Titles Only" action.
  * Prefers word boundaries; falls back to a hard split for a single very
@@ -9924,6 +10076,15 @@ class BaseOnlyTAction extends SingletonAction {
             if (this.isOnline) {
                 streamDeck.logger.warn("Lost connection to OnlyT");
             }
+            // #region agent log
+            // Confirms the flashing pattern: which polls returned null (offline) vs
+            // data. Combined with the request-level logs we can see whether the plugin
+            // truly alternates success/failure or whether the render logic is at fault.
+            debugLog("base-onlyt-action.ts:pollAll", "H1_H2_H3_H4", "poll -> offline (null data)", {
+                action: this.constructor.name,
+                wasOnline: this.isOnline,
+            });
+            // #endregion
             this.isOnline = false;
             this.cachedState = null;
             await this.updateAllActions(renderOffline());
@@ -9933,7 +10094,37 @@ class BaseOnlyTAction extends SingletonAction {
             streamDeck.logger.info("Connected to OnlyT");
         }
         this.isOnline = true;
-        const parsed = this.parseTimerData(data);
+        // #region agent log
+        // H5: if parseTimerData throws on unexpected data shape, we want to know
+        // what the raw payload looked like before the exception. Wrap the parse
+        // in try/catch and log both success and failure with a compact payload
+        // preview.
+        let parsed;
+        try {
+            parsed = this.parseTimerData(data);
+            debugLog("base-onlyt-action.ts:pollAll", "H1_H2_H3_H4", "poll -> data ok", {
+                action: this.constructor.name,
+                talkId: parsed.currentTalkId,
+                isRunning: parsed.isRunning,
+                timerInfoCount: data.timerInfo?.length ?? 0,
+            });
+        }
+        catch (err) {
+            const e = err;
+            debugLog("base-onlyt-action.ts:pollAll", "H5", "parseTimerData threw", {
+                action: this.constructor.name,
+                errName: e?.name,
+                errMessage: e?.message,
+                statusKeys: Object.keys(data?.status ?? {}),
+                timerInfoCount: data?.timerInfo?.length ?? 0,
+                timerInfoFirstKeys: data?.timerInfo?.[0] ? Object.keys(data.timerInfo[0]) : [],
+            });
+            this.isOnline = false;
+            this.cachedState = null;
+            await this.updateAllActions(renderOffline());
+            return;
+        }
+        // #endregion
         this.cachedState = parsed;
         const svg = this.renderState(parsed);
         await this.updateAllActions(svg);
@@ -10150,7 +10341,107 @@ let ItemTitles = (() => {
     return _classThis;
 })();
 
+const DELTA_SECS$1 = 60;
+/**
+ * Stream Deck action that adds one minute to the current OnlyT talk.
+ * Calls POST /api/v4/timers/{talkId}/duration with { deltaSeconds: 60 }.
+ * The tile always shows a "+1" glyph so the operator knows what the
+ * button does at a glance.
+ */
+let AddMinute = (() => {
+    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.add-minute" })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = BaseOnlyTAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        renderState(state) {
+            if (state.currentTalkId === 0) {
+                return renderEndOfMeeting();
+            }
+            return renderAddMinuteGlyph();
+        }
+        async onKeyPress(state, ev) {
+            if (!this.client)
+                return;
+            if (state.currentTalkId === 0) {
+                streamDeck.logger.warn("No talk to adjust (end of meeting)");
+                await ev.action.showAlert();
+                return;
+            }
+            streamDeck.logger.info(`AddMinute press: talkId=${state.currentTalkId}, delta=+${DELTA_SECS$1}s`);
+            const result = await this.client.changeDuration(state.currentTalkId, DELTA_SECS$1);
+            if (!result) {
+                await ev.action.showAlert();
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await this.refresh();
+        }
+    });
+    return _classThis;
+})();
+
+const DELTA_SECS = -60;
+/**
+ * Stream Deck action that subtracts one minute from the current OnlyT talk.
+ * Calls POST /api/v4/timers/{talkId}/duration with { deltaSeconds: -60 }.
+ * The tile always shows a "-1" glyph so the operator knows what the
+ * button does at a glance.
+ */
+let SubtractMinute = (() => {
+    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.subtract-minute" })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = BaseOnlyTAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        renderState(state) {
+            if (state.currentTalkId === 0) {
+                return renderEndOfMeeting();
+            }
+            return renderSubtractMinuteGlyph();
+        }
+        async onKeyPress(state, ev) {
+            if (!this.client)
+                return;
+            if (state.currentTalkId === 0) {
+                streamDeck.logger.warn("No talk to adjust (end of meeting)");
+                await ev.action.showAlert();
+                return;
+            }
+            streamDeck.logger.info(`SubtractMinute press: talkId=${state.currentTalkId}, delta=${DELTA_SECS}s`);
+            const result = await this.client.changeDuration(state.currentTalkId, DELTA_SECS);
+            if (!result) {
+                await ev.action.showAlert();
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await this.refresh();
+        }
+    });
+    return _classThis;
+})();
+
 streamDeck.actions.registerAction(new TimerControl());
 streamDeck.actions.registerAction(new StartStopOnly());
 streamDeck.actions.registerAction(new ItemTitles());
+streamDeck.actions.registerAction(new AddMinute());
+streamDeck.actions.registerAction(new SubtractMinute());
 streamDeck.connect();

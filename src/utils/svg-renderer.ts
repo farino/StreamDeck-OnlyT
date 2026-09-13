@@ -110,12 +110,13 @@ function renderTitle(
 }
 
 /**
- * Visual centre of a text glyph relative to its baseline y.
- * Text baselines sit near the bottom of the glyph, so the visible centre is
- * roughly 35% of the font size above the baseline.
+ * Top edge (cap height) of a text glyph relative to its baseline y.
+ * Used as the crossover threshold so text stays WHITE until the fill has
+ * risen completely past the entire glyph, preventing the upper portion
+ * of characters from being invisible (black on the dark tile background).
  */
-function textVisualCentre(baselineY: number, fontSize: number): number {
-	return baselineY - fontSize * 0.35;
+function textTopEdge(baselineY: number, fontSize: number): number {
+	return baselineY - fontSize * 0.8;
 }
 
 /**
@@ -146,7 +147,7 @@ function dynamicText(
 	prevFillTop: number,
 	currFillTop: number,
 ): string {
-	const refY = textVisualCentre(baselineY, fontSize);
+	const refY = textTopEdge(baselineY, fontSize);
 	const startColour = inkColourForFillTop(refY, prevFillTop);
 	const endColour = inkColourForFillTop(refY, currFillTop);
 
@@ -502,15 +503,16 @@ export function renderConnecting(): string {
 
 /**
  * Render the "end of meeting" state when all talks are done.
+ * Large tick and label so the "all done" state is unmissable on the key.
  */
 export function renderEndOfMeeting(): string {
 	return wrapSvg(`
-		<circle cx="72" cy="56" r="20" fill="none" stroke="${COLOURS.playIcon}"
-			stroke-width="3"/>
-		<polyline points="62,56 70,64 84,48" fill="none" stroke="${COLOURS.playIcon}"
-			stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-		<text x="72" y="104" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="14" font-weight="bold" fill="${COLOURS.textSecondary}">COMPLETE</text>
+		<circle cx="72" cy="56" r="36" fill="none" stroke="${COLOURS.playIcon}"
+			stroke-width="4"/>
+		<polyline points="54,56 66,68 92,40" fill="none" stroke="${COLOURS.playIcon}"
+			stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+		<text x="72" y="116" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="22" font-weight="bold" fill="${COLOURS.textSecondary}">COMPLETE</text>
 	`);
 }
 
@@ -556,13 +558,38 @@ export function renderStopGlyph(): string {
 	`);
 }
 
+/**
+ * Render a "+1" label below the "OnlyT" brand. Shown by the "Add Minute"
+ * action to indicate pressing will add one minute to the current talk.
+ */
+export function renderAddMinuteGlyph(): string {
+	return wrapSvg(`
+		${onlyTBrandLabel()}
+		<text x="72" y="108" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="48" font-weight="bold" fill="${COLOURS.textPrimary}">+1</text>
+	`);
+}
+
+/**
+ * Render a "-1" label below the "OnlyT" brand. Shown by the "Subtract
+ * Minute" action to indicate pressing will remove one minute from the
+ * current talk.
+ */
+export function renderSubtractMinuteGlyph(): string {
+	return wrapSvg(`
+		${onlyTBrandLabel()}
+		<text x="72" y="108" text-anchor="middle" font-family="Arial,sans-serif"
+			font-size="48" font-weight="bold" fill="${COLOURS.textPrimary}">\u22121</text>
+	`);
+}
+
 // -----------------------------------------------------------------------------
 // Item Titles Only renderer.
 // -----------------------------------------------------------------------------
 
 const TITLE_ONLY_MAX_CHARS_PER_LINE = 11;
-const TITLE_ONLY_FONT_SIZE = 24;
-const TITLE_ONLY_LINE_HEIGHT = 28;
+const TITLE_ONLY_FONT_SIZE = 28;
+const TITLE_ONLY_LINE_HEIGHT = 32;
 
 /**
  * Word-wrap a title into up to 3 lines for the "Item Titles Only" action.

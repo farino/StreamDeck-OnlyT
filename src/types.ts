@@ -52,6 +52,11 @@ export type StartStopSettings = ConnectionSettings;
 export type ItemTitlesSettings = ConnectionSettings;
 
 /**
+ * Settings for the "Add Minute" and "Subtract Minute" actions - connection only.
+ */
+export type AdjustTimeSettings = ConnectionSettings;
+
+/**
  * GET /api/v4/timers/ response shape from OnlyT.
  */
 export type TimersResponse = {

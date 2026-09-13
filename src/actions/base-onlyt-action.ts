@@ -8,6 +8,9 @@ import streamDeck, {
 
 import { OnlyTClient } from "../services/onlyt-client";
 import { renderOffline, renderConnecting } from "../utils/svg-renderer";
+// #region agent log
+import { debugLog } from "../utils/debug-logger";
+// #endregion
 import {
 	type ConnectionSettings,
 	type TimersResponse,
@@ -159,6 +162,15 @@ export abstract class BaseOnlyTAction<
 			if (this.isOnline) {
 				streamDeck.logger.warn("Lost connection to OnlyT");
 			}
+			// #region agent log
+			// Confirms the flashing pattern: which polls returned null (offline) vs
+			// data. Combined with the request-level logs we can see whether the plugin
+			// truly alternates success/failure or whether the render logic is at fault.
+			debugLog("base-onlyt-action.ts:pollAll", "H1_H2_H3_H4", "poll -> offline (null data)", {
+				action: this.constructor.name,
+				wasOnline: this.isOnline,
+			});
+			// #endregion
 			this.isOnline = false;
 			this.cachedState = null;
 			await this.updateAllActions(renderOffline());
@@ -170,7 +182,37 @@ export abstract class BaseOnlyTAction<
 		}
 		this.isOnline = true;
 
-		const parsed = this.parseTimerData(data);
+		// #region agent log
+		// H5: if parseTimerData throws on unexpected data shape, we want to know
+		// what the raw payload looked like before the exception. Wrap the parse
+		// in try/catch and log both success and failure with a compact payload
+		// preview.
+		let parsed: ParsedTimerState;
+		try {
+			parsed = this.parseTimerData(data);
+			debugLog("base-onlyt-action.ts:pollAll", "H1_H2_H3_H4", "poll -> data ok", {
+				action: this.constructor.name,
+				talkId: parsed.currentTalkId,
+				isRunning: parsed.isRunning,
+				timerInfoCount: data.timerInfo?.length ?? 0,
+			});
+		} catch (err) {
+			const e = err as Error;
+			debugLog("base-onlyt-action.ts:pollAll", "H5", "parseTimerData threw", {
+				action: this.constructor.name,
+				errName: e?.name,
+				errMessage: e?.message,
+				statusKeys: Object.keys(data?.status ?? {}),
+				timerInfoCount: data?.timerInfo?.length ?? 0,
+				timerInfoFirstKeys: data?.timerInfo?.[0] ? Object.keys(data.timerInfo[0]) : [],
+			});
+			this.isOnline = false;
+			this.cachedState = null;
+			await this.updateAllActions(renderOffline());
+			return;
+		}
+		// #endregion
+
 		this.cachedState = parsed;
 
 		const svg = this.renderState(parsed);
