@@ -11,51 +11,47 @@ Add-Type -MemberDefinition @'
 $proc = Get-Process -Name "JWLibrary" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Output "NOT_RUNNING"; exit 1 }
 
+# UWP windows are owned by ApplicationFrameHost, not JWLibrary.exe.
+# Find the window by its title instead of process ID.
 $root = [System.Windows.Automation.AutomationElement]::RootElement
-$pid_cond = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
-$appWin = $root.FindFirst("Children", $pid_cond)
+$nameCond = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::NameProperty, "JW Library")
+$appWin = $root.FindFirst("Children", $nameCond)
 
 if (-not $appWin) { Write-Output "WINDOW_NOT_FOUND"; exit 2 }
 
+# Bring to foreground
 $hwnd = $appWin.Current.NativeWindowHandle
 [UI.Win32]::ShowWindow([IntPtr]$hwnd, 9) | Out-Null
 [UI.Win32]::SetForegroundWindow([IntPtr]$hwnd) | Out-Null
 Start-Sleep -Milliseconds 300
 
+# Helper: find an invokable ListItem by name (skips Text and Group matches)
+function Invoke-ListItem($window, [string]$itemName) {
+    $nameCond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::NameProperty, $itemName)
+    $typeCond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::ListItem)
+    $andCond = New-Object System.Windows.Automation.AndCondition($nameCond, $typeCond)
+    $el = $window.FindFirst("Descendants", $andCond)
+    if (-not $el) { return $false }
+    try {
+        $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 switch ($Target) {
     "PersonalStudy" {
-        $cond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, "Personal Study")
-        $el = $appWin.FindFirst("Descendants", $cond)
-        if (-not $el) { Write-Output "CONTROL_NOT_FOUND:Personal Study"; exit 3 }
-        try {
-            $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        } catch {
-            Write-Output "INVOKE_FAILED:Personal Study"
-            exit 3
-        }
+        $ok = Invoke-ListItem $appWin "Personal Study"
+        if (-not $ok) { Write-Output "CONTROL_NOT_FOUND:Personal Study"; exit 3 }
     }
     "Meetings" {
-        $homeCond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, "Home")
-        $homeEl = $appWin.FindFirst("Descendants", $homeCond)
-        if ($homeEl) {
-            try { $homeEl.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-            catch { }
-            Start-Sleep -Milliseconds 400
-        }
-        $meetCond = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::NameProperty, "Meetings")
-        $appWin2 = $root.FindFirst("Children", $pid_cond)
-        $meetEl = $appWin2.FindFirst("Descendants", $meetCond)
-        if (-not $meetEl) { Write-Output "CONTROL_NOT_FOUND:Meetings"; exit 3 }
-        try {
-            $meetEl.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-        } catch {
-            Write-Output "INVOKE_FAILED:Meetings"
-            exit 3
-        }
+        $ok = Invoke-ListItem $appWin "Meetings"
+        if (-not $ok) { Write-Output "CONTROL_NOT_FOUND:Meetings"; exit 3 }
     }
     default { Write-Output "UNKNOWN_TARGET"; exit 4 }
 }
