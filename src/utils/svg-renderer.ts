@@ -658,35 +658,3 @@ export function renderTitleOnly(talkName: string): string {
 	return wrapSvg(textElements);
 }
 
-// -----------------------------------------------------------------------------
-// JW Library action glyphs.
-// -----------------------------------------------------------------------------
-
-/**
- * Static glyph for the "Personal Study" action key.
- * Shows a book icon above the label.
- */
-export function renderJWStudyGlyph(): string {
-	return wrapSvg(`
-		<rect x="44" y="16" width="56" height="44" rx="4" fill="none"
-			stroke="${COLOURS.textPrimary}" stroke-width="3"/>
-		<line x1="72" y1="16" x2="72" y2="60" stroke="${COLOURS.textPrimary}" stroke-width="2"/>
-		<text x="72" y="96" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="18" font-weight="bold" fill="${COLOURS.textPrimary}">Study</text>
-	`);
-}
-
-/**
- * Static glyph for the "Meetings" action key.
- * Shows a group/people icon above the label.
- */
-export function renderJWMeetingsGlyph(): string {
-	return wrapSvg(`
-		<circle cx="72" cy="24" r="10" fill="none"
-			stroke="${COLOURS.textPrimary}" stroke-width="3"/>
-		<path d="M52,56 Q52,40 72,40 Q92,40 92,56" fill="none"
-			stroke="${COLOURS.textPrimary}" stroke-width="3" stroke-linecap="round"/>
-		<text x="72" y="96" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="16" font-weight="bold" fill="${COLOURS.textPrimary}">Meetings</text>
-	`);
-}

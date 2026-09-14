@@ -15,8 +15,7 @@ import { cwd } from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join as join$1, dirname } from 'path';
-import { execFile } from 'child_process';
+import { join as join$1 } from 'path';
 
 /**
  * Default language supported by all i18n providers.
@@ -9966,36 +9965,6 @@ function renderTitleOnly(talkName) {
         .join("");
     return wrapSvg(textElements);
 }
-// -----------------------------------------------------------------------------
-// JW Library action glyphs.
-// -----------------------------------------------------------------------------
-/**
- * Static glyph for the "Personal Study" action key.
- * Shows a book icon above the label.
- */
-function renderJWStudyGlyph() {
-    return wrapSvg(`
-		<rect x="44" y="16" width="56" height="44" rx="4" fill="none"
-			stroke="${COLOURS.textPrimary}" stroke-width="3"/>
-		<line x1="72" y1="16" x2="72" y2="60" stroke="${COLOURS.textPrimary}" stroke-width="2"/>
-		<text x="72" y="96" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="18" font-weight="bold" fill="${COLOURS.textPrimary}">Study</text>
-	`);
-}
-/**
- * Static glyph for the "Meetings" action key.
- * Shows a group/people icon above the label.
- */
-function renderJWMeetingsGlyph() {
-    return wrapSvg(`
-		<circle cx="72" cy="24" r="10" fill="none"
-			stroke="${COLOURS.textPrimary}" stroke-width="3"/>
-		<path d="M52,56 Q52,40 72,40 Q92,40 92,56" fill="none"
-			stroke="${COLOURS.textPrimary}" stroke-width="3" stroke-linecap="round"/>
-		<text x="72" y="96" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="16" font-weight="bold" fill="${COLOURS.textPrimary}">Meetings</text>
-	`);
-}
 
 const POLL_INTERVAL_MS = 200;
 /**
@@ -10491,138 +10460,9 @@ let SubtractMinute = (() => {
     return _classThis;
 })();
 
-/**
- * Resolve the path to jw-navigate.ps1 relative to the compiled plugin.js.
- * At runtime, plugin.js and jw-navigate.ps1 both live in the same bin/
- * directory inside the .sdPlugin folder.
- */
-function scriptPath() {
-    return join$1(dirname(process.argv[1] ?? __filename), "jw-navigate.ps1");
-}
-/**
- * Invoke the JW Library navigation PowerShell script.
- * Returns a result string indicating success or the specific failure mode.
- */
-function navigateJWLibrary(target) {
-    return new Promise((resolve) => {
-        const ps1 = scriptPath();
-        streamDeck.logger.info(`JW navigate: target=${target}, script=${ps1}`);
-        execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-Target", target], { timeout: 10_000, windowsHide: true }, (err, stdout, stderr) => {
-            const output = (stdout ?? "").trim();
-            if (err) {
-                streamDeck.logger.warn(`JW navigate failed: exit=${err.code ?? "?"}, ` +
-                    `stdout="${output}", stderr="${(stderr ?? "").trim()}"`);
-                if (output === "NOT_RUNNING") {
-                    resolve("NOT_RUNNING");
-                }
-                else if (output === "WINDOW_NOT_FOUND") {
-                    resolve("WINDOW_NOT_FOUND");
-                }
-                else if (output.startsWith("CONTROL_NOT_FOUND") || output.startsWith("INVOKE_FAILED")) {
-                    resolve("CONTROL_NOT_FOUND");
-                }
-                else {
-                    resolve("ERROR");
-                }
-                return;
-            }
-            streamDeck.logger.info(`JW navigate OK: ${output}`);
-            resolve("OK");
-        });
-    });
-}
-
-/**
- * Stream Deck action that brings JW Library to the foreground and
- * navigates to the "Personal Study" section using Windows UI Automation.
- * Extends SingletonAction directly — no OnlyT connection needed.
- */
-let JWStudy = (() => {
-    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.jw-study" })];
-    let _classDescriptor;
-    let _classExtraInitializers = [];
-    let _classThis;
-    let _classSuper = SingletonAction;
-    (class extends _classSuper {
-        static { _classThis = this; }
-        static {
-            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
-            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
-            _classThis = _classDescriptor.value;
-            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
-            __runInitializers(_classThis, _classExtraInitializers);
-        }
-        async onWillAppear(ev) {
-            const svg = renderJWStudyGlyph();
-            await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(svg)}`);
-            await ev.action.setTitle("");
-        }
-        async onKeyDown(ev) {
-            streamDeck.logger.info("JWStudy key pressed");
-            try {
-                const result = await navigateJWLibrary("PersonalStudy");
-                if (result !== "OK") {
-                    streamDeck.logger.warn(`JWStudy navigation failed: ${result}`);
-                    await ev.action.showAlert();
-                }
-            }
-            catch (err) {
-                streamDeck.logger.error(`JWStudy error: ${err}`);
-                await ev.action.showAlert();
-            }
-        }
-    });
-    return _classThis;
-})();
-
-/**
- * Stream Deck action that brings JW Library to the foreground and
- * navigates to the "Meetings" section (via Home first) using Windows
- * UI Automation. Extends SingletonAction directly — no OnlyT connection.
- */
-let JWMeetings = (() => {
-    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.jw-meetings" })];
-    let _classDescriptor;
-    let _classExtraInitializers = [];
-    let _classThis;
-    let _classSuper = SingletonAction;
-    (class extends _classSuper {
-        static { _classThis = this; }
-        static {
-            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
-            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
-            _classThis = _classDescriptor.value;
-            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
-            __runInitializers(_classThis, _classExtraInitializers);
-        }
-        async onWillAppear(ev) {
-            const svg = renderJWMeetingsGlyph();
-            await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(svg)}`);
-            await ev.action.setTitle("");
-        }
-        async onKeyDown(ev) {
-            streamDeck.logger.info("JWMeetings key pressed");
-            try {
-                const result = await navigateJWLibrary("Meetings");
-                if (result !== "OK") {
-                    streamDeck.logger.warn(`JWMeetings navigation failed: ${result}`);
-                    await ev.action.showAlert();
-                }
-            }
-            catch (err) {
-                streamDeck.logger.error(`JWMeetings error: ${err}`);
-                await ev.action.showAlert();
-            }
-        }
-    });
-    return _classThis;
-})();
-
 streamDeck.actions.registerAction(new TimerControl());
 streamDeck.actions.registerAction(new StartStopOnly());
 streamDeck.actions.registerAction(new ItemTitles());
 streamDeck.actions.registerAction(new AddMinute());
 streamDeck.actions.registerAction(new SubtractMinute());
-streamDeck.actions.registerAction(new JWStudy());
-streamDeck.actions.registerAction(new JWMeetings());
 streamDeck.connect();
