@@ -19,7 +19,7 @@ import {
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.item-titles" })
 export class ItemTitles extends BaseOnlyTAction<ItemTitlesSettings> {
-	protected renderState(state: ParsedTimerState): string {
+	protected renderState(state: ParsedTimerState, _settings: ItemTitlesSettings): string {
 		if (state.currentTalkId === 0) {
 			return renderEndOfMeeting();
 		}

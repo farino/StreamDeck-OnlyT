@@ -22,6 +22,9 @@ import {
  * Displays the current talk name and colour-coded countdown (or draining
  * fill / radial ring, depending on `displayMode`), and toggles start/stop
  * on OnlyT when pressed. Sync is handled by `BaseOnlyTAction`'s 5 Hz poll.
+ *
+ * Each visible instance keeps its own settings, so multiple Timer Control
+ * keys can use different display modes and toggles at the same time.
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.timer-control" })
 export class TimerControl extends BaseOnlyTAction<TimerSettings> {
@@ -31,17 +34,17 @@ export class TimerControl extends BaseOnlyTAction<TimerSettings> {
 		return { ...DEFAULT_SETTINGS, ...(persisted ?? {}) };
 	}
 
-	protected renderState(state: ParsedTimerState): string {
+	protected renderState(state: ParsedTimerState, settings: TimerSettings): string {
 		if (state.isRunning) {
-			if (this.settings.displayMode === "dynamic") {
+			if (settings.displayMode === "dynamic") {
 				return renderRunningDynamic(
 					state.currentTalkName,
 					state.remainingSecs,
 					state.targetSecs,
-					this.settings.showTitle,
+					settings.showTitle,
 				);
 			}
-			if (this.settings.displayMode === "radial") {
+			if (settings.displayMode === "radial") {
 				return renderRunningRadial(
 					state.currentTalkName,
 					state.remainingSecs,
@@ -52,7 +55,7 @@ export class TimerControl extends BaseOnlyTAction<TimerSettings> {
 				state.currentTalkName,
 				state.remainingSecs,
 				state.closingSecs,
-				this.settings.showTitle,
+				settings.showTitle,
 			);
 		}
 
@@ -63,7 +66,8 @@ export class TimerControl extends BaseOnlyTAction<TimerSettings> {
 		return renderReady(
 			state.currentTalkName,
 			state.nextTalkDurationSecs,
-			this.settings.showTitle,
+			settings.showTitle,
+			settings.showStartButton,
 		);
 	}
 

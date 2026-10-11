@@ -174,6 +174,12 @@
 		</div>
 		<div class="sdpi-hint">Show the current talk name above the time. Default and Dynamic modes only &mdash; Radial never displays a title.</div>
 
+		<div class="sdpi-item sdpi-item-checkbox">
+			<label for="showStartButton">Show Start Button</label>
+			<input type="checkbox" id="showStartButton" checked />
+		</div>
+		<div class="sdpi-hint">Show the green play triangle and START label when the timer is stopped. Turn off for a cleaner ready display.</div>
+
 		<div class="sdpi-heading">OnlyT Connection</div>
 
 		<div class="sdpi-item">
@@ -210,7 +216,7 @@
 	<script>
 		const $SD = window.$SD;
 		let uuid = "";
-		let settings = { host: "localhost", port: 8096, apiCode: "", displayMode: "default", showTitle: true };
+		let settings = { host: "localhost", port: 8096, apiCode: "", displayMode: "default", showTitle: true, showStartButton: true };
 
 		/**
 		 * Connect to Stream Deck property inspector API.
@@ -249,6 +255,7 @@
 			document.getElementById("apiCode").addEventListener("change", onFieldChanged);
 			document.getElementById("displayMode").addEventListener("change", onFieldChanged);
 			document.getElementById("showTitle").addEventListener("change", onFieldChanged);
+			document.getElementById("showStartButton").addEventListener("change", onFieldChanged);
 
 			testConnection();
 		}
@@ -258,8 +265,10 @@
 			document.getElementById("port").value = settings.port || 8096;
 			document.getElementById("apiCode").value = settings.apiCode || "";
 			document.getElementById("displayMode").value = settings.displayMode || "default";
-			// Treat missing showTitle as true so existing users don't unexpectedly lose their title.
+			// Treat missing showTitle / showStartButton as true so existing users
+			// don't unexpectedly lose their title or start cue.
 			document.getElementById("showTitle").checked = settings.showTitle !== false;
+			document.getElementById("showStartButton").checked = settings.showStartButton !== false;
 		}
 
 		function onFieldChanged() {
@@ -268,6 +277,7 @@
 			settings.apiCode = document.getElementById("apiCode").value || "";
 			settings.displayMode = document.getElementById("displayMode").value || "default";
 			settings.showTitle = document.getElementById("showTitle").checked;
+			settings.showStartButton = document.getElementById("showStartButton").checked;
 
 			if (window._ws && window._ws.readyState === WebSocket.OPEN) {
 				window._ws.send(JSON.stringify({

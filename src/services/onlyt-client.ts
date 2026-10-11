@@ -83,6 +83,14 @@ export class OnlyTClient {
 		);
 	}
 
+	/**
+	 * Ring the OnlyT overtime bell. Succeeds even when the bell is disabled
+	 * in OnlyT Options (OnlyT still returns success, but no sound plays).
+	 */
+	async ringBell(): Promise<{ success: boolean } | null> {
+		return this.request<{ success: boolean }>("POST", "/api/v4/bell");
+	}
+
 	private async request<T>(method: string, path: string, body?: Record<string, unknown>): Promise<T | null> {
 		const url = `${this.baseUrl}${path}`;
 		const headers: Record<string, string> = {

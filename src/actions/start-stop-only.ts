@@ -23,7 +23,7 @@ import {
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.start-stop" })
 export class StartStopOnly extends BaseOnlyTAction<StartStopSettings> {
-	protected renderState(state: ParsedTimerState): string {
+	protected renderState(state: ParsedTimerState, _settings: StartStopSettings): string {
 		if (state.isRunning) {
 			return renderStopGlyph();
 		}

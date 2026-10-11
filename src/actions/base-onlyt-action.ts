@@ -26,9 +26,14 @@ const POLL_INTERVAL_MS = 200;
  * the 5 Hz poll loop, offline detection, state parsing, and the "only push
  * a new image when the rendered SVG actually changed" throttle.
  *
+ * Multiple visible instances of the same action are supported: each keeps
+ * its own settings (e.g. display mode) and is rendered independently.
+ * Connection settings from the most recently configured instance drive the
+ * shared OnlyT client.
+ *
  * Subclasses provide two things:
- *  - `renderState(state)` - returns the SVG string for the current parsed
- *    state (each action can render however it likes).
+ *  - `renderState(state, settings)` - returns the SVG string for the current
+ *    parsed state using that instance's settings.
  *  - `onKeyPress(state, ev)` - optional; called on button press with the
  *    latest parsed state and the raw event. Default is a no-op so
  *    display-only actions (e.g. "Item Titles Only") don't have to override.
@@ -44,35 +49,45 @@ export abstract class BaseOnlyTAction<
 	protected pollTimer: NodeJS.Timeout | null = null;
 	protected cachedState: ParsedTimerState | null = null;
 	protected isOnline = false;
-	protected lastRenderedSvg = "";
+	/** Per-instance last rendered SVG, keyed by action context id. */
+	protected lastRenderedSvgById = new Map<string, string>();
+	/** Per-instance settings, keyed by action context id. */
+	protected instanceSettings = new Map<string, S>();
+	/** Connection settings used by the shared OnlyT client. */
 	protected settings: S = { ...(DEFAULT_CONNECTION as S) };
 
 	override async onWillAppear(ev: WillAppearEvent<S>): Promise<void> {
 		streamDeck.logger.info(`${this.constructor.name}.onWillAppear fired`);
 
 		const settings = this.mergeSettings(ev.payload.settings);
-		this.settings = settings;
-		this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-		this.cachedState = null;
-		this.isOnline = false;
-		this.lastRenderedSvg = "";
+		this.instanceSettings.set(ev.action.id, settings);
+		this.applyConnectionSettings(settings);
+		this.lastRenderedSvgById.delete(ev.action.id);
 
 		await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
 		await ev.action.setTitle("");
 
-		this.stopPolling();
-		this.pollTimer = setInterval(() => {
-			this.pollAll().catch((err) => {
-				streamDeck.logger.error(`Poll error: ${err}`);
-			});
-		}, POLL_INTERVAL_MS);
+		if (!this.pollTimer) {
+			this.pollTimer = setInterval(() => {
+				this.pollAll().catch((err) => {
+					streamDeck.logger.error(`Poll error: ${err}`);
+				});
+			}, POLL_INTERVAL_MS);
+		}
 
 		await this.pollAll();
 	}
 
-	override async onWillDisappear(_ev: WillDisappearEvent<S>): Promise<void> {
+	override async onWillDisappear(ev: WillDisappearEvent<S>): Promise<void> {
 		streamDeck.logger.info(`${this.constructor.name}.onWillDisappear fired`);
-		this.stopPolling();
+		this.instanceSettings.delete(ev.action.id);
+		this.lastRenderedSvgById.delete(ev.action.id);
+
+		// Store already removed this action before our handler runs; stop
+		// polling only when no instances of this action remain visible.
+		if ([...this.actions].length === 0) {
+			this.stopPolling();
+		}
 	}
 
 	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<S>): Promise<void> {
@@ -81,17 +96,11 @@ export abstract class BaseOnlyTAction<
 			`${this.constructor.name} settings updated: host=${settings.host}, port=${settings.port}`,
 		);
 
-		this.settings = settings;
+		this.instanceSettings.set(ev.action.id, settings);
+		this.applyConnectionSettings(settings);
+		this.lastRenderedSvgById.delete(ev.action.id);
 
-		if (this.client) {
-			this.client.updateConnection(settings.host, settings.port, settings.apiCode);
-		} else {
-			this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-		}
-
-		this.cachedState = null;
-		this.isOnline = false;
-		this.lastRenderedSvg = "";
+		await this.refresh();
 	}
 
 	override async onKeyDown(ev: KeyDownEvent<S>): Promise<void> {
@@ -148,10 +157,11 @@ export abstract class BaseOnlyTAction<
 	}
 
 	/**
-	 * Return the SVG to display for the given parsed state. Called after
-	 * every successful poll and when the SVG differs from the last frame.
+	 * Return the SVG to display for the given parsed state and this
+	 * instance's settings. Called after every successful poll when the
+	 * SVG differs from the last frame for that instance.
 	 */
-	protected abstract renderState(state: ParsedTimerState): string;
+	protected abstract renderState(state: ParsedTimerState, settings: S): string;
 
 	/**
 	 * Handle a button press with the latest parsed state. Default is a
@@ -171,6 +181,15 @@ export abstract class BaseOnlyTAction<
 	 */
 	protected async refresh(): Promise<void> {
 		await this.pollAll();
+	}
+
+	private applyConnectionSettings(settings: S): void {
+		this.settings = settings;
+		if (this.client) {
+			this.client.updateConnection(settings.host, settings.port, settings.apiCode);
+		} else {
+			this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
+		}
 	}
 
 	private async pollAll(): Promise<void> {
@@ -193,7 +212,7 @@ export abstract class BaseOnlyTAction<
 			// #endregion
 			this.isOnline = false;
 			this.cachedState = null;
-			await this.updateAllActions(renderOffline());
+			await this.updateAllActions(null);
 			return;
 		}
 
@@ -228,28 +247,31 @@ export abstract class BaseOnlyTAction<
 			});
 			this.isOnline = false;
 			this.cachedState = null;
-			await this.updateAllActions(renderOffline());
+			await this.updateAllActions(null);
 			return;
 		}
 		// #endregion
 
 		this.cachedState = parsed;
-
-		const svg = this.renderState(parsed);
-		await this.updateAllActions(svg);
+		await this.updateAllActions(parsed);
 	}
 
-	private async updateAllActions(svg: string): Promise<void> {
-		// Skip re-render if the displayed content has not changed since last poll.
-		// This keeps the Stream Deck update rate to ~1 Hz (once per displayed
-		// second) even though we poll OnlyT at 5 Hz for tight sync.
-		if (svg === this.lastRenderedSvg) {
-			return;
-		}
-		this.lastRenderedSvg = svg;
-
-		const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+	/**
+	 * Push a fresh image to every visible instance. When `state` is null the
+	 * offline tile is shown; otherwise each instance is rendered with its
+	 * own settings so display modes can differ per key.
+	 */
+	private async updateAllActions(state: ParsedTimerState | null): Promise<void> {
 		for (const a of this.actions) {
+			const settings = this.instanceSettings.get(a.id) ?? this.mergeSettings(undefined);
+			const svg = state === null ? renderOffline() : this.renderState(state, settings);
+
+			if (svg === this.lastRenderedSvgById.get(a.id)) {
+				continue;
+			}
+			this.lastRenderedSvgById.set(a.id, svg);
+
+			const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 			await a.setImage(encoded);
 			await a.setTitle("");
 		}

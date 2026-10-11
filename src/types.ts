@@ -33,12 +33,15 @@ export type TimerSettings = ConnectionSettings & {
 	displayMode: DisplayMode;
 	/** Show the current talk name above the time (Default and Dynamic modes only). */
 	showTitle: boolean;
+	/** Show the green play triangle and "START" label when the timer is stopped. */
+	showStartButton: boolean;
 };
 
 export const DEFAULT_SETTINGS: TimerSettings = {
 	...DEFAULT_CONNECTION,
 	displayMode: "default",
 	showTitle: true,
+	showStartButton: true,
 };
 
 /**

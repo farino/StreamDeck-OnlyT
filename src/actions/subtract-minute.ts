@@ -23,7 +23,7 @@ const DELTA_SECS = -60;
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.subtract-minute" })
 export class SubtractMinute extends BaseOnlyTAction<AdjustTimeSettings> {
-	protected renderState(state: ParsedTimerState): string {
+	protected renderState(state: ParsedTimerState, _settings: AdjustTimeSettings): string {
 		if (state.currentTalkId === 0) {
 			return renderEndOfMeeting();
 		}

@@ -9282,6 +9282,13 @@ class OnlyTClient {
     async changeDuration(talkId, deltaSecs) {
         return this.request("POST", `/api/v4/timers/${talkId}/duration`, { deltaSeconds: deltaSecs });
     }
+    /**
+     * Ring the OnlyT overtime bell. Succeeds even when the bell is disabled
+     * in OnlyT Options (OnlyT still returns success, but no sound plays).
+     */
+    async ringBell() {
+        return this.request("POST", "/api/v4/bell");
+    }
     async request(method, path, body) {
         const url = `${this.baseUrl}${path}`;
         const headers = {
@@ -9384,6 +9391,7 @@ const DEFAULT_SETTINGS = {
     ...DEFAULT_CONNECTION,
     displayMode: "default",
     showTitle: true,
+    showStartButton: true,
 };
 /**
  * Parse a .NET TimeSpan string "HH:MM:SS.fff" into total seconds.
@@ -9565,20 +9573,24 @@ function renderDynamicTitle(text, fontSize, centreY, prevFillTop, currFillTop) {
 }
 /**
  * Render the "ready / stopped" state.
- * Shows the current talk name (optional), its predefined duration, and a
- * play triangle. Pass `showTitle=false` to omit the title - used by the
- * Timer Control action's "Item title" toggle for Default and Dynamic modes.
+ * Shows the current talk name (optional), its predefined duration, and
+ * optionally a play triangle + START label. Pass `showTitle=false` to omit
+ * the title; pass `showStartButton=false` to omit the play cue — both used
+ * by the Timer Control action's display toggles.
  */
-function renderReady(talkName, durationSecs, showTitle = true) {
+function renderReady(talkName, durationSecs, showTitle = true, showStartButton = true) {
     const name = talkName || "Ready";
     const time = formatTime(durationSecs);
     return wrapSvg(`
 		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
 		<text x="72" y="88" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="38" font-weight="bold" fill="${COLOURS.textPrimary}">${time}</text>
-		<polygon points="56,108 56,132 80,120" fill="${COLOURS.playIcon}"/>
-		<text x="90" y="125" text-anchor="start" font-family="Arial,sans-serif"
-			font-size="13" fill="${COLOURS.textSecondary}">START</text>
+		${showStartButton ? `
+		<g transform="translate(72,120)">
+			<polygon points="-46,-18 -46,18 -10,0" fill="${COLOURS.timeGreen}"/>
+			<text x="0" y="7" text-anchor="start" font-family="Arial,sans-serif"
+				font-size="18" font-weight="bold" fill="${COLOURS.textSecondary}">START</text>
+		</g>` : ""}
 	`);
 }
 /**
@@ -9897,6 +9909,21 @@ function renderSubtractMinuteGlyph() {
 			font-size="48" font-weight="bold" fill="${COLOURS.textPrimary}">\u22121</text>
 	`);
 }
+/**
+ * Render a white bell glyph below the "OnlyT" brand. Shown by the Bell
+ * action so the key is recognisable at a glance.
+ */
+function renderBellGlyph() {
+    return wrapSvg(`
+		${onlyTBrandLabel()}
+		<path fill="none" stroke="${COLOURS.textPrimary}" stroke-width="7"
+			stroke-linecap="round" stroke-linejoin="round"
+			d="M50 74c0-12 9-22 22-22s22 10 22 22v18l9 12H41l9-12V74z"/>
+		<path fill="none" stroke="${COLOURS.textPrimary}" stroke-width="7"
+			stroke-linecap="round" d="M64 118c4 7 12 9 18 5"/>
+		<circle cx="72" cy="46" r="4" fill="${COLOURS.textPrimary}"/>
+	`);
+}
 // -----------------------------------------------------------------------------
 // Item Titles Only renderer.
 // -----------------------------------------------------------------------------
@@ -9972,9 +9999,14 @@ const POLL_INTERVAL_MS = 200;
  * the 5 Hz poll loop, offline detection, state parsing, and the "only push
  * a new image when the rendered SVG actually changed" throttle.
  *
+ * Multiple visible instances of the same action are supported: each keeps
+ * its own settings (e.g. display mode) and is rendered independently.
+ * Connection settings from the most recently configured instance drive the
+ * shared OnlyT client.
+ *
  * Subclasses provide two things:
- *  - `renderState(state)` - returns the SVG string for the current parsed
- *    state (each action can render however it likes).
+ *  - `renderState(state, settings)` - returns the SVG string for the current
+ *    parsed state using that instance's settings.
  *  - `onKeyPress(state, ev)` - optional; called on button press with the
  *    latest parsed state and the raw event. Default is a no-op so
  *    display-only actions (e.g. "Item Titles Only") don't have to override.
@@ -9988,43 +10020,46 @@ class BaseOnlyTAction extends SingletonAction {
     pollTimer = null;
     cachedState = null;
     isOnline = false;
-    lastRenderedSvg = "";
+    /** Per-instance last rendered SVG, keyed by action context id. */
+    lastRenderedSvgById = new Map();
+    /** Per-instance settings, keyed by action context id. */
+    instanceSettings = new Map();
+    /** Connection settings used by the shared OnlyT client. */
     settings = { ...DEFAULT_CONNECTION };
     async onWillAppear(ev) {
         streamDeck.logger.info(`${this.constructor.name}.onWillAppear fired`);
         const settings = this.mergeSettings(ev.payload.settings);
-        this.settings = settings;
-        this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-        this.cachedState = null;
-        this.isOnline = false;
-        this.lastRenderedSvg = "";
+        this.instanceSettings.set(ev.action.id, settings);
+        this.applyConnectionSettings(settings);
+        this.lastRenderedSvgById.delete(ev.action.id);
         await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
         await ev.action.setTitle("");
-        this.stopPolling();
-        this.pollTimer = setInterval(() => {
-            this.pollAll().catch((err) => {
-                streamDeck.logger.error(`Poll error: ${err}`);
-            });
-        }, POLL_INTERVAL_MS);
+        if (!this.pollTimer) {
+            this.pollTimer = setInterval(() => {
+                this.pollAll().catch((err) => {
+                    streamDeck.logger.error(`Poll error: ${err}`);
+                });
+            }, POLL_INTERVAL_MS);
+        }
         await this.pollAll();
     }
-    async onWillDisappear(_ev) {
+    async onWillDisappear(ev) {
         streamDeck.logger.info(`${this.constructor.name}.onWillDisappear fired`);
-        this.stopPolling();
+        this.instanceSettings.delete(ev.action.id);
+        this.lastRenderedSvgById.delete(ev.action.id);
+        // Store already removed this action before our handler runs; stop
+        // polling only when no instances of this action remain visible.
+        if ([...this.actions].length === 0) {
+            this.stopPolling();
+        }
     }
     async onDidReceiveSettings(ev) {
         const settings = this.mergeSettings(ev.payload.settings);
         streamDeck.logger.info(`${this.constructor.name} settings updated: host=${settings.host}, port=${settings.port}`);
-        this.settings = settings;
-        if (this.client) {
-            this.client.updateConnection(settings.host, settings.port, settings.apiCode);
-        }
-        else {
-            this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-        }
-        this.cachedState = null;
-        this.isOnline = false;
-        this.lastRenderedSvg = "";
+        this.instanceSettings.set(ev.action.id, settings);
+        this.applyConnectionSettings(settings);
+        this.lastRenderedSvgById.delete(ev.action.id);
+        await this.refresh();
     }
     async onKeyDown(ev) {
         debugLog("base-onlyt-action.ts:onKeyDown", "KEYPRESS", "onKeyDown fired", {
@@ -10089,6 +10124,15 @@ class BaseOnlyTAction extends SingletonAction {
     async refresh() {
         await this.pollAll();
     }
+    applyConnectionSettings(settings) {
+        this.settings = settings;
+        if (this.client) {
+            this.client.updateConnection(settings.host, settings.port, settings.apiCode);
+        }
+        else {
+            this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
+        }
+    }
     async pollAll() {
         if (!this.client)
             return;
@@ -10108,7 +10152,7 @@ class BaseOnlyTAction extends SingletonAction {
             // #endregion
             this.isOnline = false;
             this.cachedState = null;
-            await this.updateAllActions(renderOffline());
+            await this.updateAllActions(null);
             return;
         }
         if (!this.isOnline) {
@@ -10142,24 +10186,27 @@ class BaseOnlyTAction extends SingletonAction {
             });
             this.isOnline = false;
             this.cachedState = null;
-            await this.updateAllActions(renderOffline());
+            await this.updateAllActions(null);
             return;
         }
         // #endregion
         this.cachedState = parsed;
-        const svg = this.renderState(parsed);
-        await this.updateAllActions(svg);
+        await this.updateAllActions(parsed);
     }
-    async updateAllActions(svg) {
-        // Skip re-render if the displayed content has not changed since last poll.
-        // This keeps the Stream Deck update rate to ~1 Hz (once per displayed
-        // second) even though we poll OnlyT at 5 Hz for tight sync.
-        if (svg === this.lastRenderedSvg) {
-            return;
-        }
-        this.lastRenderedSvg = svg;
-        const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    /**
+     * Push a fresh image to every visible instance. When `state` is null the
+     * offline tile is shown; otherwise each instance is rendered with its
+     * own settings so display modes can differ per key.
+     */
+    async updateAllActions(state) {
         for (const a of this.actions) {
+            const settings = this.instanceSettings.get(a.id) ?? this.mergeSettings(undefined);
+            const svg = state === null ? renderOffline() : this.renderState(state, settings);
+            if (svg === this.lastRenderedSvgById.get(a.id)) {
+                continue;
+            }
+            this.lastRenderedSvgById.set(a.id, svg);
+            const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
             await a.setImage(encoded);
             await a.setTitle("");
         }
@@ -10199,6 +10246,9 @@ class BaseOnlyTAction extends SingletonAction {
  * Displays the current talk name and colour-coded countdown (or draining
  * fill / radial ring, depending on `displayMode`), and toggles start/stop
  * on OnlyT when pressed. Sync is handled by `BaseOnlyTAction`'s 5 Hz poll.
+ *
+ * Each visible instance keeps its own settings, so multiple Timer Control
+ * keys can use different display modes and toggles at the same time.
  */
 let TimerControl = (() => {
     let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.timer-control" })];
@@ -10218,20 +10268,20 @@ let TimerControl = (() => {
         mergeSettings(persisted) {
             return { ...DEFAULT_SETTINGS, ...(persisted ?? {}) };
         }
-        renderState(state) {
+        renderState(state, settings) {
             if (state.isRunning) {
-                if (this.settings.displayMode === "dynamic") {
-                    return renderRunningDynamic(state.currentTalkName, state.remainingSecs, state.targetSecs, this.settings.showTitle);
+                if (settings.displayMode === "dynamic") {
+                    return renderRunningDynamic(state.currentTalkName, state.remainingSecs, state.targetSecs, settings.showTitle);
                 }
-                if (this.settings.displayMode === "radial") {
+                if (settings.displayMode === "radial") {
                     return renderRunningRadial(state.currentTalkName, state.remainingSecs, state.targetSecs);
                 }
-                return renderRunning(state.currentTalkName, state.remainingSecs, state.closingSecs, this.settings.showTitle);
+                return renderRunning(state.currentTalkName, state.remainingSecs, state.closingSecs, settings.showTitle);
             }
             if (state.currentTalkId === 0) {
                 return renderEndOfMeeting();
             }
-            return renderReady(state.currentTalkName, state.nextTalkDurationSecs, this.settings.showTitle);
+            return renderReady(state.currentTalkName, state.nextTalkDurationSecs, settings.showTitle, settings.showStartButton);
         }
         async onKeyPress(state, ev) {
             if (!this.client)
@@ -10289,7 +10339,7 @@ let StartStopOnly = (() => {
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
         }
-        renderState(state) {
+        renderState(state, _settings) {
             if (state.isRunning) {
                 return renderStopGlyph();
             }
@@ -10352,7 +10402,7 @@ let ItemTitles = (() => {
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
         }
-        renderState(state) {
+        renderState(state, _settings) {
             if (state.currentTalkId === 0) {
                 return renderEndOfMeeting();
             }
@@ -10384,7 +10434,7 @@ let AddMinute = (() => {
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
         }
-        renderState(state) {
+        renderState(state, _settings) {
             if (state.currentTalkId === 0) {
                 return renderEndOfMeeting();
             }
@@ -10433,7 +10483,7 @@ let SubtractMinute = (() => {
             if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
             __runInitializers(_classThis, _classExtraInitializers);
         }
-        renderState(state) {
+        renderState(state, _settings) {
             if (state.currentTalkId === 0) {
                 return renderEndOfMeeting();
             }
@@ -10460,9 +10510,50 @@ let SubtractMinute = (() => {
     return _classThis;
 })();
 
+/**
+ * Stream Deck action that rings the OnlyT overtime bell.
+ * Calls POST /api/v4/bell. The tile always shows a bell glyph.
+ * Note: OnlyT must have the bell enabled in Options to hear sound;
+ * the API still returns success when the bell is disabled.
+ */
+let Bell = (() => {
+    let _classDecorators = [action({ UUID: "com.farino.streamdeck-onlyt.bell" })];
+    let _classDescriptor;
+    let _classExtraInitializers = [];
+    let _classThis;
+    let _classSuper = BaseOnlyTAction;
+    (class extends _classSuper {
+        static { _classThis = this; }
+        static {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0;
+            __esDecorate(null, _classDescriptor = { value: _classThis }, _classDecorators, { kind: "class", name: _classThis.name, metadata: _metadata }, null, _classExtraInitializers);
+            _classThis = _classDescriptor.value;
+            if (_metadata) Object.defineProperty(_classThis, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+            __runInitializers(_classThis, _classExtraInitializers);
+        }
+        renderState(_state, _settings) {
+            return renderBellGlyph();
+        }
+        async onKeyPress(_state, ev) {
+            if (!this.client)
+                return;
+            streamDeck.logger.info("Bell press: ringing OnlyT bell");
+            const result = await this.client.ringBell();
+            streamDeck.logger.info(`Bell result: ${JSON.stringify(result)}`);
+            if (result === null || result.success === false) {
+                await ev.action.showAlert();
+                return;
+            }
+            await ev.action.showOk();
+        }
+    });
+    return _classThis;
+})();
+
 streamDeck.actions.registerAction(new TimerControl());
 streamDeck.actions.registerAction(new StartStopOnly());
 streamDeck.actions.registerAction(new ItemTitles());
 streamDeck.actions.registerAction(new AddMinute());
 streamDeck.actions.registerAction(new SubtractMinute());
+streamDeck.actions.registerAction(new Bell());
 streamDeck.connect();

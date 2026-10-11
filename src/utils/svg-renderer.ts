@@ -200,14 +200,16 @@ function renderDynamicTitle(
 
 /**
  * Render the "ready / stopped" state.
- * Shows the current talk name (optional), its predefined duration, and a
- * play triangle. Pass `showTitle=false` to omit the title - used by the
- * Timer Control action's "Item title" toggle for Default and Dynamic modes.
+ * Shows the current talk name (optional), its predefined duration, and
+ * optionally a play triangle + START label. Pass `showTitle=false` to omit
+ * the title; pass `showStartButton=false` to omit the play cue — both used
+ * by the Timer Control action's display toggles.
  */
 export function renderReady(
 	talkName: string,
 	durationSecs: number,
 	showTitle = true,
+	showStartButton = true,
 ): string {
 	const name = talkName || "Ready";
 	const time = formatTime(durationSecs);
@@ -216,9 +218,12 @@ export function renderReady(
 		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
 		<text x="72" y="88" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="38" font-weight="bold" fill="${COLOURS.textPrimary}">${time}</text>
-		<polygon points="56,108 56,132 80,120" fill="${COLOURS.playIcon}"/>
-		<text x="90" y="125" text-anchor="start" font-family="Arial,sans-serif"
-			font-size="13" fill="${COLOURS.textSecondary}">START</text>
+		${showStartButton ? `
+		<g transform="translate(72,120)">
+			<polygon points="-46,-18 -46,18 -10,0" fill="${COLOURS.timeGreen}"/>
+			<text x="0" y="7" text-anchor="start" font-family="Arial,sans-serif"
+				font-size="18" font-weight="bold" fill="${COLOURS.textSecondary}">START</text>
+		</g>` : ""}
 	`);
 }
 
@@ -580,6 +585,46 @@ export function renderSubtractMinuteGlyph(): string {
 		${onlyTBrandLabel()}
 		<text x="72" y="108" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="48" font-weight="bold" fill="${COLOURS.textPrimary}">\u22121</text>
+	`);
+}
+
+/**
+ * Render a white bell glyph below the "OnlyT" brand. Shown by the Bell
+ * action so the key is recognisable at a glance.
+ */
+export function renderBellGlyph(): string {
+	return wrapSvg(`
+		${onlyTBrandLabel()}
+		<path fill="none" stroke="${COLOURS.textPrimary}" stroke-width="7"
+			stroke-linecap="round" stroke-linejoin="round"
+			d="M50 74c0-12 9-22 22-22s22 10 22 22v18l9 12H41l9-12V74z"/>
+		<path fill="none" stroke="${COLOURS.textPrimary}" stroke-width="7"
+			stroke-linecap="round" d="M64 118c4 7 12 9 18 5"/>
+		<circle cx="72" cy="46" r="4" fill="${COLOURS.textPrimary}"/>
+	`);
+}
+
+/**
+ * Render white pause bars below the "OnlyT" brand. Shown by the Pause
+ * action while the timer is running.
+ */
+export function renderPauseGlyph(): string {
+	return wrapSvg(`
+		${onlyTBrandLabel()}
+		<rect x="48" y="52" width="16" height="64" rx="3" fill="${COLOURS.textPrimary}"/>
+		<rect x="80" y="52" width="16" height="64" rx="3" fill="${COLOURS.textPrimary}"/>
+	`);
+}
+
+/**
+ * Render a green play triangle below the "OnlyT" brand. Shown by the
+ * Pause action while the timer is already paused, so the same key can
+ * resume.
+ */
+export function renderResumeGlyph(): string {
+	return wrapSvg(`
+		${onlyTBrandLabel()}
+		<polygon points="52,52 52,120 116,86" fill="${COLOURS.timeGreen}"/>
 	`);
 }
 
