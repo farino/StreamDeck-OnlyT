@@ -16,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join as join$1 } from 'path';
+import { spawn, execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Default language supported by all i18n providers.
@@ -7473,7 +7475,7 @@ class Connection extends EventEmitter {
         }
     }
 }
-const connection = new Connection();
+const connection$1 = new Connection();
 
 /**
  * Provides information for events received from Stream Deck.
@@ -7825,7 +7827,7 @@ const settings = {
      * or global settings are changed in the property inspector.
      */
     set useExperimentalMessageIdentifiers(value) {
-        requiresVersion(7.1, connection.version, "Message identifiers");
+        requiresVersion(7.1, connection$1.version, "Message identifiers");
         actionConfig.useExperimentalMessageIdentifiers = value;
     },
     /**
@@ -7835,10 +7837,10 @@ const settings = {
      */
     getGlobalSettings: () => {
         return new Promise((resolve) => {
-            connection.once("didReceiveGlobalSettings", (ev) => resolve(ev.payload.settings));
-            connection.send({
+            connection$1.once("didReceiveGlobalSettings", (ev) => resolve(ev.payload.settings));
+            connection$1.send({
                 event: "getGlobalSettings",
-                context: connection.registrationParameters.pluginUUID,
+                context: connection$1.registrationParameters.pluginUUID,
                 id: randomUUID(),
             });
         });
@@ -7851,7 +7853,7 @@ const settings = {
      * @returns A disposable that removes the listener.
      */
     onDidReceiveGlobalSettings: (listener) => {
-        return connection.disposableOn("didReceiveGlobalSettings", (ev) => {
+        return connection$1.disposableOn("didReceiveGlobalSettings", (ev) => {
             // Do nothing when the global settings were requested.
             if (settings.useExperimentalMessageIdentifiers && ev.id) {
                 return;
@@ -7867,7 +7869,7 @@ const settings = {
      * @returns A disposable that removes the listener.
      */
     onDidReceiveSettings: (listener) => {
-        return connection.disposableOn("didReceiveSettings", (ev) => {
+        return connection$1.disposableOn("didReceiveSettings", (ev) => {
             // Do nothing when the action's settings were requested.
             if (settings.useExperimentalMessageIdentifiers && ev.id) {
                 return;
@@ -7889,9 +7891,9 @@ const settings = {
      * })
      */
     setGlobalSettings: async (settings) => {
-        await connection.send({
+        await connection$1.send({
             event: "setGlobalSettings",
-            context: connection.registrationParameters.pluginUUID,
+            context: connection$1.registrationParameters.pluginUUID,
             payload: settings,
         });
     },
@@ -7948,7 +7950,7 @@ class UIController {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDidAppear(listener) {
-        return connection.disposableOn("propertyInspectorDidAppear", (ev) => {
+        return connection$1.disposableOn("propertyInspectorDidAppear", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action) {
                 listener(new ActionWithoutPayloadEvent(action, ev));
@@ -7963,7 +7965,7 @@ class UIController {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDidDisappear(listener) {
-        return connection.disposableOn("propertyInspectorDidDisappear", (ev) => {
+        return connection$1.disposableOn("propertyInspectorDidDisappear", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action) {
                 listener(new ActionWithoutPayloadEvent(action, ev));
@@ -7978,7 +7980,7 @@ class UIController {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onSendToPlugin(listener) {
-        return connection.disposableOn("sendToPlugin", (ev) => {
+        return connection$1.disposableOn("sendToPlugin", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action) {
                 listener(new SendToPluginEvent(action, ev));
@@ -7992,7 +7994,7 @@ class UIController {
      */
     async sendToPropertyInspector(payload) {
         if (this.#action) {
-            await connection.send({
+            await connection$1.send({
                 event: "sendToPropertyInspector",
                 context: this.#action.id,
                 payload,
@@ -8169,7 +8171,7 @@ class Action extends ActionContext {
      * @returns The resources.
      */
     async getResources() {
-        requiresVersion(7.1, connection.version, "getResources");
+        requiresVersion(7.1, connection$1.version, "getResources");
         const res = await this.#fetch("getResources", "didReceiveResources");
         return res.payload.resources;
     }
@@ -8222,8 +8224,8 @@ class Action extends ActionContext {
      * @returns `Promise` resolved when the resources are saved to Stream Deck.
      */
     setResources(resources) {
-        requiresVersion(7.1, connection.version, "setResources");
-        return connection.send({
+        requiresVersion(7.1, connection$1.version, "setResources");
+        return connection$1.send({
             event: "setResources",
             context: this.id,
             payload: resources,
@@ -8236,7 +8238,7 @@ class Action extends ActionContext {
      */
     setSettings(value) {
         settingsCache.delete(this.id);
-        return connection.send({
+        return connection$1.send({
             event: "setSettings",
             context: this.id,
             payload: value,
@@ -8247,7 +8249,7 @@ class Action extends ActionContext {
      * @returns `Promise` resolved when the request to show an alert has been sent to Stream Deck.
      */
     showAlert() {
-        return connection.send({
+        return connection$1.send({
             event: "showAlert",
             context: this.id,
         });
@@ -8266,7 +8268,7 @@ class Action extends ActionContext {
             reject("The request timed out");
         }, REQUEST_TIMEOUT);
         // Listen for an event that can resolve the request.
-        const listener = connection.disposableOn(event, (ev) => {
+        const listener = connection$1.disposableOn(event, (ev) => {
             // Make sure the received event is for this action.
             if (ev.context == this.id) {
                 clearTimeout(timeoutId);
@@ -8275,7 +8277,7 @@ class Action extends ActionContext {
             }
         });
         // Send the request; specifying an id signifies its a request.
-        await connection.send({
+        await connection$1.send({
             event: command,
             context: this.id,
             id: randomUUID(),
@@ -8321,7 +8323,7 @@ class DialAction extends Action {
      * @returns `Promise` resolved when the request to set the {@link feedback} has been sent to Stream Deck.
      */
     setFeedback(feedback) {
-        return connection.send({
+        return connection$1.send({
             event: "setFeedback",
             context: this.id,
             payload: feedback,
@@ -8334,7 +8336,7 @@ class DialAction extends Action {
      * @returns `Promise` resolved when the new layout has been sent to Stream Deck.
      */
     setFeedbackLayout(layout) {
-        return connection.send({
+        return connection$1.send({
             event: "setFeedbackLayout",
             context: this.id,
             payload: {
@@ -8351,7 +8353,7 @@ class DialAction extends Action {
      * @returns `Promise` resolved when the request to set the {@link image} has been sent to Stream Deck.
      */
     setImage(image) {
-        return connection.send({
+        return connection$1.send({
             event: "setImage",
             context: this.id,
             payload: {
@@ -8379,7 +8381,7 @@ class DialAction extends Action {
      * @returns `Promise` resolved when the request to set the {@link descriptions} has been sent to Stream Deck.
      */
     setTriggerDescription(descriptions) {
-        return connection.send({
+        return connection$1.send({
             event: "setTriggerDescription",
             context: this.id,
             payload: descriptions || {},
@@ -8445,7 +8447,7 @@ class KeyAction extends Action {
      * @returns `Promise` resolved when the request to set the {@link image} has been sent to Stream Deck.
      */
     setImage(image, options) {
-        return connection.send({
+        return connection$1.send({
             event: "setImage",
             context: this.id,
             payload: {
@@ -8460,7 +8462,7 @@ class KeyAction extends Action {
      * @returns `Promise` resolved when the request to set the state of an action instance has been sent to Stream Deck.
      */
     setState(state) {
-        return connection.send({
+        return connection$1.send({
             event: "setState",
             context: this.id,
             payload: {
@@ -8477,7 +8479,7 @@ class KeyAction extends Action {
      * @returns `Promise` resolved when the request to set the {@link title} has been sent to Stream Deck.
      */
     setTitle(title, options) {
-        return connection.send({
+        return connection$1.send({
             event: "setTitle",
             context: this.id,
             payload: {
@@ -8492,7 +8494,7 @@ class KeyAction extends Action {
      * @returns `Promise` resolved when the request to show an "OK" has been sent to Stream Deck.
      */
     showOk() {
-        return connection.send({
+        return connection$1.send({
             event: "showOk",
             context: this.id,
         });
@@ -8520,7 +8522,7 @@ class ActionService extends ReadOnlyActionStore {
     constructor() {
         super();
         // Adds the action to the store.
-        connection.prependListener("willAppear", (ev) => {
+        connection$1.prependListener("willAppear", (ev) => {
             const action = ev.payload.controller === "Encoder" ? new DialAction(ev) : new KeyAction(ev);
             actionStore.set(action);
             if (actionConfig.useExperimentalMessageIdentifiers) {
@@ -8528,13 +8530,13 @@ class ActionService extends ReadOnlyActionStore {
             }
         });
         // Update the settings cache when settings are received.
-        connection.prependListener("didReceiveSettings", (ev) => {
+        connection$1.prependListener("didReceiveSettings", (ev) => {
             if (actionConfig.useExperimentalMessageIdentifiers) {
                 settingsCache.set(ev.context, ev.payload.settings);
             }
         });
         // Remove the action from the store.
-        connection.prependListener("willDisappear", (ev) => {
+        connection$1.prependListener("willDisappear", (ev) => {
             actionStore.delete(ev.context);
             settingsCache.delete(ev.context);
         });
@@ -8546,7 +8548,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDialDown(listener) {
-        return connection.disposableOn("dialDown", (ev) => {
+        return connection$1.disposableOn("dialDown", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action?.isDial()) {
                 listener(new ActionEvent(action, ev));
@@ -8560,7 +8562,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDialRotate(listener) {
-        return connection.disposableOn("dialRotate", (ev) => {
+        return connection$1.disposableOn("dialRotate", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action?.isDial()) {
                 listener(new ActionEvent(action, ev));
@@ -8574,7 +8576,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDialUp(listener) {
-        return connection.disposableOn("dialUp", (ev) => {
+        return connection$1.disposableOn("dialUp", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action?.isDial()) {
                 listener(new ActionEvent(action, ev));
@@ -8587,7 +8589,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDidReceiveResources(listener) {
-        return connection.disposableOn("didReceiveResources", (ev) => {
+        return connection$1.disposableOn("didReceiveResources", (ev) => {
             // When the id is defined, the resources were requested, so we don't propagate the event.
             if (ev.id !== undefined) {
                 return;
@@ -8605,7 +8607,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onKeyDown(listener) {
-        return connection.disposableOn("keyDown", (ev) => {
+        return connection$1.disposableOn("keyDown", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action?.isKey()) {
                 listener(new ActionEvent(action, ev));
@@ -8619,7 +8621,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onKeyUp(listener) {
-        return connection.disposableOn("keyUp", (ev) => {
+        return connection$1.disposableOn("keyUp", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action?.isKey()) {
                 listener(new ActionEvent(action, ev));
@@ -8633,7 +8635,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onTitleParametersDidChange(listener) {
-        return connection.disposableOn("titleParametersDidChange", (ev) => {
+        return connection$1.disposableOn("titleParametersDidChange", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action) {
                 listener(new ActionEvent(action, ev));
@@ -8647,7 +8649,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onTouchTap(listener) {
-        return connection.disposableOn("touchTap", (ev) => {
+        return connection$1.disposableOn("touchTap", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action?.isDial()) {
                 listener(new ActionEvent(action, ev));
@@ -8662,7 +8664,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onWillAppear(listener) {
-        return connection.disposableOn("willAppear", (ev) => {
+        return connection$1.disposableOn("willAppear", (ev) => {
             const action = actionStore.getActionById(ev.context);
             if (action) {
                 listener(new ActionEvent(action, ev));
@@ -8677,7 +8679,7 @@ class ActionService extends ReadOnlyActionStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onWillDisappear(listener) {
-        return connection.disposableOn("willDisappear", (ev) => listener(new ActionEvent(new ActionContext(ev), ev)));
+        return connection$1.disposableOn("willDisappear", (ev) => listener(new ActionEvent(new ActionContext(ev), ev)));
     }
     /**
      * Registers the action with the Stream Deck, routing all events associated with the {@link SingletonAction.manifestId} to the specified {@link action}.
@@ -8761,20 +8763,20 @@ class Device {
         this.#info = info;
         this.#isConnected = isConnected;
         // Set connected.
-        connection.prependListener("deviceDidConnect", (ev) => {
+        connection$1.prependListener("deviceDidConnect", (ev) => {
             if (ev.device === this.id) {
                 this.#info = ev.deviceInfo;
                 this.#isConnected = true;
             }
         });
         // Track changes.
-        connection.prependListener("deviceDidChange", (ev) => {
+        connection$1.prependListener("deviceDidChange", (ev) => {
             if (ev.device === this.id) {
                 this.#info = ev.deviceInfo;
             }
         });
         // Set disconnected.
-        connection.prependListener("deviceDidDisconnect", (ev) => {
+        connection$1.prependListener("deviceDidDisconnect", (ev) => {
             if (ev.device === this.id) {
                 this.#isConnected = false;
             }
@@ -8827,17 +8829,17 @@ class DeviceService extends ReadOnlyDeviceStore {
     constructor() {
         super();
         // Add the devices from registration parameters.
-        connection.once("connected", (info) => {
+        connection$1.once("connected", (info) => {
             info.devices.forEach((dev) => deviceStore.set(new Device(dev.id, dev, false)));
         });
         // Add new devices that were connected.
-        connection.on("deviceDidConnect", ({ device: id, deviceInfo }) => {
+        connection$1.on("deviceDidConnect", ({ device: id, deviceInfo }) => {
             if (!deviceStore.getDeviceById(id)) {
                 deviceStore.set(new Device(id, deviceInfo, true));
             }
         });
         // Add new devices that were changed (Virtual Stream Deck event race).
-        connection.on("deviceDidChange", ({ device: id, deviceInfo }) => {
+        connection$1.on("deviceDidChange", ({ device: id, deviceInfo }) => {
             if (!deviceStore.getDeviceById(id)) {
                 deviceStore.set(new Device(id, deviceInfo, false));
             }
@@ -8851,8 +8853,8 @@ class DeviceService extends ReadOnlyDeviceStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDeviceDidChange(listener) {
-        requiresVersion(7.0, connection.version, "onDeviceDidChange");
-        return connection.disposableOn("deviceDidChange", (ev) => listener(new DeviceEvent(ev, this.getDeviceById(ev.device))));
+        requiresVersion(7.0, connection$1.version, "onDeviceDidChange");
+        return connection$1.disposableOn("deviceDidChange", (ev) => listener(new DeviceEvent(ev, this.getDeviceById(ev.device))));
     }
     /**
      * Occurs when a Stream Deck device is connected. See also {@link DeviceService.onDeviceDidConnect}.
@@ -8860,7 +8862,7 @@ class DeviceService extends ReadOnlyDeviceStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDeviceDidConnect(listener) {
-        return connection.disposableOn("deviceDidConnect", (ev) => listener(new DeviceEvent(ev, this.getDeviceById(ev.device))));
+        return connection$1.disposableOn("deviceDidConnect", (ev) => listener(new DeviceEvent(ev, this.getDeviceById(ev.device))));
     }
     /**
      * Occurs when a Stream Deck device is disconnected. See also {@link DeviceService.onDeviceDidDisconnect}.
@@ -8868,7 +8870,7 @@ class DeviceService extends ReadOnlyDeviceStore {
      * @returns A disposable that, when disposed, removes the listener.
      */
     onDeviceDidDisconnect(listener) {
-        return connection.disposableOn("deviceDidDisconnect", (ev) => listener(new DeviceEvent(ev, this.getDeviceById(ev.device))));
+        return connection$1.disposableOn("deviceDidDisconnect", (ev) => listener(new DeviceEvent(ev, this.getDeviceById(ev.device))));
     }
 }
 /**
@@ -8922,11 +8924,11 @@ function parseLocalizations(contents) {
  */
 function switchToProfile(deviceId, profile, page) {
     if (page !== undefined) {
-        requiresVersion(6.5, connection.version, "Switching to a profile page");
+        requiresVersion(6.5, connection$1.version, "Switching to a profile page");
     }
-    return connection.send({
+    return connection$1.send({
         event: "switchToProfile",
-        context: connection.registrationParameters.pluginUUID,
+        context: connection$1.registrationParameters.pluginUUID,
         device: deviceId,
         payload: {
             page,
@@ -8947,7 +8949,7 @@ var profiles = /*#__PURE__*/Object.freeze({
  * @returns A disposable that, when disposed, removes the listener.
  */
 function onApplicationDidLaunch(listener) {
-    return connection.disposableOn("applicationDidLaunch", (ev) => listener(new ApplicationEvent(ev)));
+    return connection$1.disposableOn("applicationDidLaunch", (ev) => listener(new ApplicationEvent(ev)));
 }
 /**
  * Occurs when a monitored application terminates. Monitored applications can be defined in the manifest via the {@link Manifest.ApplicationsToMonitor} property.
@@ -8956,7 +8958,7 @@ function onApplicationDidLaunch(listener) {
  * @returns A disposable that, when disposed, removes the listener.
  */
 function onApplicationDidTerminate(listener) {
-    return connection.disposableOn("applicationDidTerminate", (ev) => listener(new ApplicationEvent(ev)));
+    return connection$1.disposableOn("applicationDidTerminate", (ev) => listener(new ApplicationEvent(ev)));
 }
 /**
  * Occurs when a deep-link message is routed to the plugin from Stream Deck. One-way deep-link messages can be sent to plugins from external applications using the URL format
@@ -8965,8 +8967,8 @@ function onApplicationDidTerminate(listener) {
  * @returns A disposable that, when disposed, removes the listener.
  */
 function onDidReceiveDeepLink(listener) {
-    requiresVersion(6.5, connection.version, "Receiving deep-link messages");
-    return connection.disposableOn("didReceiveDeepLink", (ev) => listener(new DidReceiveDeepLinkEvent(ev)));
+    requiresVersion(6.5, connection$1.version, "Receiving deep-link messages");
+    return connection$1.disposableOn("didReceiveDeepLink", (ev) => listener(new DidReceiveDeepLinkEvent(ev)));
 }
 /**
  * Occurs when the computer wakes up.
@@ -8974,7 +8976,7 @@ function onDidReceiveDeepLink(listener) {
  * @returns A disposable that, when disposed, removes the listener.
  */
 function onSystemDidWakeUp(listener) {
-    return connection.disposableOn("systemDidWakeUp", (ev) => listener(new Event(ev)));
+    return connection$1.disposableOn("systemDidWakeUp", (ev) => listener(new Event(ev)));
 }
 /**
  * Opens the specified `url` in the user's default browser.
@@ -8982,7 +8984,7 @@ function onSystemDidWakeUp(listener) {
  * @returns `Promise` resolved when the request to open the `url` has been sent to Stream Deck.
  */
 function openUrl(url) {
-    return connection.send({
+    return connection$1.send({
         event: "openUrl",
         payload: {
             url,
@@ -8994,13 +8996,13 @@ function openUrl(url) {
  * @returns `Promise` resolved with the secrets associated with the plugin.
  */
 function getSecrets() {
-    requiresVersion(6.9, connection.version, "Secrets");
+    requiresVersion(6.9, connection$1.version, "Secrets");
     requiresSDKVersion(3, "Secrets");
     return new Promise((resolve) => {
-        connection.once("didReceiveSecrets", (ev) => resolve(ev.payload.secrets));
-        connection.send({
+        connection$1.once("didReceiveSecrets", (ev) => resolve(ev.payload.secrets));
+        connection$1.send({
             event: "getSecrets",
-            context: connection.registrationParameters.pluginUUID,
+            context: connection$1.registrationParameters.pluginUUID,
         });
     });
 }
@@ -9079,7 +9081,7 @@ const streamDeck = {
      * @returns Registration information.
      */
     get info() {
-        return connection.registrationParameters.info;
+        return connection$1.registrationParameters.info;
     },
     /**
      * Logger responsible for capturing log messages.
@@ -9121,7 +9123,7 @@ const streamDeck = {
      * @returns A promise resolved when a connection has been established.
      */
     connect() {
-        return connection.connect();
+        return connection$1.connect();
     },
 };
 
@@ -9388,7 +9390,6 @@ const DEFAULT_CONNECTION = {
     apiCode: "",
 };
 const DEFAULT_SETTINGS = {
-    ...DEFAULT_CONNECTION,
     displayMode: "default",
     showTitle: true,
     showStartButton: true,
@@ -9415,6 +9416,232 @@ function formatTime(totalSecs) {
     const s = abs % 60;
     const sign = totalSecs < 0 ? "-" : "";
     return `${sign}${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+const CONNECTION_KEYS = ["host", "port", "apiCode"];
+/**
+ * True when persisted action settings still carry a user-entered OnlyT connection.
+ */
+function hasLegacyConnectionFields(raw) {
+    if (!raw)
+        return false;
+    const host = raw.host;
+    if (typeof host === "string" && host.trim())
+        return true;
+    const port = raw.port;
+    if (typeof port === "number" && !Number.isNaN(port))
+        return true;
+    if (typeof port === "string" && port.trim())
+        return true;
+    const apiCode = raw.apiCode;
+    if (typeof apiCode === "string" && apiCode.trim())
+        return true;
+    return false;
+}
+/**
+ * Read host / port / API code from legacy per-action settings.
+ */
+function extractLegacyConnection(raw) {
+    if (!hasLegacyConnectionFields(raw))
+        return null;
+    let host = DEFAULT_CONNECTION.host;
+    if (typeof raw?.host === "string" && raw.host.trim()) {
+        host = raw.host.trim();
+    }
+    let port = DEFAULT_CONNECTION.port;
+    if (typeof raw?.port === "number" && !Number.isNaN(raw.port)) {
+        port = raw.port;
+    }
+    else if (typeof raw?.port === "string" && raw.port.trim()) {
+        port = parseInt(raw.port, 10) || DEFAULT_CONNECTION.port;
+    }
+    const apiCode = typeof raw?.apiCode === "string" ? raw.apiCode : DEFAULT_CONNECTION.apiCode;
+    return normalizeConnection({ host, port, apiCode });
+}
+function normalizeConnection(partial) {
+    const hostRaw = partial?.host;
+    const host = typeof hostRaw === "string" && hostRaw.trim()
+        ? hostRaw.trim()
+        : DEFAULT_CONNECTION.host;
+    const portRaw = partial?.port;
+    let port = DEFAULT_CONNECTION.port;
+    if (typeof portRaw === "number" && !Number.isNaN(portRaw)) {
+        port = portRaw;
+    }
+    else if (typeof portRaw === "string" && portRaw.trim()) {
+        port = parseInt(portRaw, 10) || DEFAULT_CONNECTION.port;
+    }
+    const apiCode = typeof partial?.apiCode === "string"
+        ? partial.apiCode
+        : DEFAULT_CONNECTION.apiCode;
+    return {
+        host: normalizeHostForConnection(host),
+        port,
+        apiCode,
+    };
+}
+function normalizeHostForConnection(host) {
+    const h = host.trim().toLowerCase();
+    if (h === "localhost")
+        return "127.0.0.1";
+    return host.trim();
+}
+function connectionVoteKey(settings) {
+    return `${normalizeHostForConnection(settings.host)}|${settings.port}|${settings.apiCode}`;
+}
+/**
+ * Pick the most common host/port/apiCode profile across action instances.
+ */
+function majorityConnection(candidates) {
+    if (candidates.length === 0)
+        return null;
+    const tallies = new Map();
+    for (const candidate of candidates) {
+        const normalized = normalizeConnection(candidate);
+        const key = connectionVoteKey(normalized);
+        const entry = tallies.get(key) ?? { count: 0, value: normalized };
+        entry.count += 1;
+        tallies.set(key, entry);
+    }
+    let best = null;
+    for (const entry of tallies.values()) {
+        if (!best || entry.count > best.count) {
+            best = entry;
+        }
+    }
+    return best?.value ?? null;
+}
+function hasConfiguredGlobalConnection(raw) {
+    if (!raw)
+        return false;
+    if (raw.connectionMigrated === true)
+        return true;
+    return hasLegacyConnectionFields(raw);
+}
+/**
+ * Remove OnlyT connection fields from action settings JSON.
+ */
+function stripConnectionFields(settings) {
+    const copy = { ...settings };
+    for (const key of CONNECTION_KEYS) {
+        delete copy[key];
+    }
+    return copy;
+}
+
+let connection = { ...DEFAULT_CONNECTION };
+let client = null;
+const listeners = new Set();
+function getOnlyTClient() {
+    if (!client) {
+        client = new OnlyTClient(connection.host, connection.port, connection.apiCode);
+    }
+    return client;
+}
+function applyPluginConnection(next) {
+    const normalized = normalizeConnection(next);
+    const changed = normalized.host !== connection.host ||
+        normalized.port !== connection.port ||
+        normalized.apiCode !== connection.apiCode;
+    connection = normalized;
+    if (client) {
+        client.updateConnection(connection.host, connection.port, connection.apiCode);
+    }
+    else {
+        client = new OnlyTClient(connection.host, connection.port, connection.apiCode);
+    }
+    if (changed) {
+        for (const listener of listeners) {
+            listener();
+        }
+    }
+}
+function onPluginConnectionChanged(listener) {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+}
+
+const MIGRATION_DEBOUNCE_MS = 800;
+const legacyCandidates = [];
+/** Callbacks that remove legacy host/port/api from an instance once global settings own them. */
+const pendingStrips = new Set();
+let migrationTimer = null;
+let globalLoaded = false;
+function applyGlobalSettingsPayload(raw) {
+    if (hasConfiguredGlobalConnection(raw)) {
+        applyPluginConnection({
+            host: raw?.host,
+            port: raw?.port,
+            apiCode: raw?.apiCode,
+        });
+    }
+}
+async function loadGlobalConnectionSettings() {
+    if (globalLoaded)
+        return;
+    globalLoaded = true;
+    const global = await streamDeck.settings.getGlobalSettings();
+    applyGlobalSettingsPayload(global);
+}
+/**
+ * An action instance still carries legacy host/port/api. Use it as a vote for
+ * the global profile and remove it from the instance (via `strip`) afterwards.
+ */
+function registerLegacyConnection(raw, strip) {
+    const legacy = extractLegacyConnection(raw);
+    if (!legacy)
+        return;
+    legacyCandidates.push(legacy);
+    pendingStrips.add(strip);
+    void applyLegacyFallbackUntilMigrated();
+    scheduleConnectionMigration();
+}
+/** Keep OnlyT online using legacy instance settings until global migration finishes. */
+async function applyLegacyFallbackUntilMigrated() {
+    const global = await streamDeck.settings.getGlobalSettings();
+    if (hasConfiguredGlobalConnection(global)) {
+        return;
+    }
+    const picked = majorityConnection(legacyCandidates);
+    if (picked) {
+        applyPluginConnection(picked);
+    }
+}
+function scheduleConnectionMigration() {
+    if (migrationTimer) {
+        clearTimeout(migrationTimer);
+    }
+    migrationTimer = setTimeout(() => {
+        void runConnectionMigration();
+    }, MIGRATION_DEBOUNCE_MS);
+}
+async function runConnectionMigration() {
+    const global = await streamDeck.settings.getGlobalSettings();
+    const globalRecord = global;
+    if (!hasConfiguredGlobalConnection(globalRecord)) {
+        const picked = majorityConnection(legacyCandidates);
+        if (!picked)
+            return;
+        const payload = {
+            ...picked,
+            connectionMigrated: true,
+        };
+        await streamDeck.settings.setGlobalSettings(payload);
+        applyPluginConnection(payload);
+        streamDeck.logger.info(`Migrated OnlyT connection to global settings (host=${payload.host}, port=${payload.port})`);
+    }
+    else {
+        applyGlobalSettingsPayload(globalRecord);
+    }
+    flushPendingStrips();
+}
+function flushPendingStrips() {
+    const strips = [...pendingStrips];
+    pendingStrips.clear();
+    legacyCandidates.length = 0;
+    for (const strip of strips) {
+        strip();
+    }
 }
 
 const SIZE = 144;
@@ -10001,8 +10228,9 @@ const POLL_INTERVAL_MS = 200;
  *
  * Multiple visible instances of the same action are supported: each keeps
  * its own settings (e.g. display mode) and is rendered independently.
- * Connection settings from the most recently configured instance drive the
- * shared OnlyT client.
+ * Host / port / API code are NOT per instance: they live in Stream Deck
+ * global settings and drive one shared OnlyT client (plugin-connection).
+ * Legacy per-instance values are migrated to global settings, then removed.
  *
  * Subclasses provide two things:
  *  - `renderState(state, settings)` - returns the SVG string for the current
@@ -10011,12 +10239,15 @@ const POLL_INTERVAL_MS = 200;
  *    latest parsed state and the raw event. Default is a no-op so
  *    display-only actions (e.g. "Item Titles Only") don't have to override.
  *
- * `ConnectionSettings` is the minimum shape a subclass's settings type must
- * satisfy; subclasses are free to extend it with additional fields (e.g.
- * `TimerSettings` adds `displayMode` and `showTitle`).
+ * Subclasses' settings types hold only per-instance options (e.g.
+ * `TimerSettings`: `displayMode`, `showTitle`).
  */
 class BaseOnlyTAction extends SingletonAction {
-    client = null;
+    /** Shared OnlyT client driven by the plugin-wide global connection. */
+    get client() {
+        return getOnlyTClient();
+    }
+    connectionListenerDispose = null;
     pollTimer = null;
     cachedState = null;
     isOnline = false;
@@ -10024,14 +10255,18 @@ class BaseOnlyTAction extends SingletonAction {
     lastRenderedSvgById = new Map();
     /** Per-instance settings, keyed by action context id. */
     instanceSettings = new Map();
-    /** Connection settings used by the shared OnlyT client. */
-    settings = { ...DEFAULT_CONNECTION };
     async onWillAppear(ev) {
         streamDeck.logger.info(`${this.constructor.name}.onWillAppear fired`);
         const settings = this.mergeSettings(ev.payload.settings);
         this.instanceSettings.set(ev.action.id, settings);
-        this.applyConnectionSettings(settings);
+        this.migrateLegacyConnection(ev.action, ev.payload.settings);
         this.lastRenderedSvgById.delete(ev.action.id);
+        if (!this.connectionListenerDispose) {
+            this.connectionListenerDispose = onPluginConnectionChanged(() => {
+                this.lastRenderedSvgById.clear();
+                void this.refresh();
+            });
+        }
         await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
         await ev.action.setTitle("");
         if (!this.pollTimer) {
@@ -10051,13 +10286,17 @@ class BaseOnlyTAction extends SingletonAction {
         // polling only when no instances of this action remain visible.
         if ([...this.actions].length === 0) {
             this.stopPolling();
+            if (this.connectionListenerDispose) {
+                this.connectionListenerDispose();
+                this.connectionListenerDispose = null;
+            }
         }
     }
     async onDidReceiveSettings(ev) {
         const settings = this.mergeSettings(ev.payload.settings);
-        streamDeck.logger.info(`${this.constructor.name} settings updated: host=${settings.host}, port=${settings.port}`);
+        streamDeck.logger.info(`${this.constructor.name} settings updated`);
         this.instanceSettings.set(ev.action.id, settings);
-        this.applyConnectionSettings(settings);
+        this.migrateLegacyConnection(ev.action, ev.payload.settings);
         this.lastRenderedSvgById.delete(ev.action.id);
         await this.refresh();
     }
@@ -10107,7 +10346,20 @@ class BaseOnlyTAction extends SingletonAction {
      * Subclasses that need to layer their own defaults can override this.
      */
     mergeSettings(persisted) {
-        return { ...DEFAULT_CONNECTION, ...(persisted ?? {}) };
+        return stripConnectionFields({ ...(persisted ?? {}) });
+    }
+    /**
+     * If this instance still stores host/port/API code from an older version,
+     * vote it into the global connection and, once migrated, remove it here.
+     */
+    migrateLegacyConnection(action, raw) {
+        const record = raw;
+        if (!record || !hasLegacyConnectionFields(record))
+            return;
+        const stripped = stripConnectionFields({ ...record });
+        registerLegacyConnection(record, () => {
+            void action.setSettings(stripped);
+        });
     }
     /**
      * Handle a button press with the latest parsed state. Default is a
@@ -10124,18 +10376,7 @@ class BaseOnlyTAction extends SingletonAction {
     async refresh() {
         await this.pollAll();
     }
-    applyConnectionSettings(settings) {
-        this.settings = settings;
-        if (this.client) {
-            this.client.updateConnection(settings.host, settings.port, settings.apiCode);
-        }
-        else {
-            this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-        }
-    }
     async pollAll() {
-        if (!this.client)
-            return;
         const data = await this.client.getTimers();
         if (!data) {
             if (this.isOnline) {
@@ -10266,7 +10507,7 @@ let TimerControl = (() => {
             __runInitializers(_classThis, _classExtraInitializers);
         }
         mergeSettings(persisted) {
-            return { ...DEFAULT_SETTINGS, ...(persisted ?? {}) };
+            return { ...DEFAULT_SETTINGS, ...super.mergeSettings(persisted) };
         }
         renderState(state, settings) {
             if (state.isRunning) {
@@ -10550,6 +10791,126 @@ let Bell = (() => {
     return _classThis;
 })();
 
+const SCRIPT_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "onlyt-window-lock.ps1");
+const PI_EVENT_GET_MONITORS = "onlytGetMonitors";
+const PI_EVENT_MONITORS = "onlytMonitors";
+/** Windows display device name, e.g. \\.\DISPLAY2 */
+const MONITOR_NAME_PATTERN = /^\\\\\.\\DISPLAY\d+$/;
+let helper = null;
+let activeMonitor = null;
+function powershellArgs(mode, extra = []) {
+    return [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        SCRIPT_PATH,
+        "-Mode",
+        mode,
+        ...extra,
+    ];
+}
+function runOnce(mode) {
+    return new Promise((resolve, reject) => {
+        execFile("powershell.exe", powershellArgs(mode), { windowsHide: true, timeout: 15000 }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    });
+}
+async function listMonitors() {
+    try {
+        const out = (await runOnce("List")).trim();
+        const parsed = JSON.parse(out);
+        return parsed.filter((m) => MONITOR_NAME_PATTERN.test(m.deviceName));
+    }
+    catch (err) {
+        streamDeck.logger.warn(`Could not list monitors: ${err}`);
+        return [];
+    }
+}
+function stopHelper() {
+    if (helper) {
+        helper.removeAllListeners("exit");
+        helper.kill();
+        helper = null;
+    }
+    activeMonitor = null;
+}
+function startHelper(monitor) {
+    const extra = ["-ParentPid", String(process.pid)];
+    if (monitor) {
+        extra.push("-Monitor", monitor);
+    }
+    const child = spawn("powershell.exe", powershellArgs("Lock", extra), {
+        windowsHide: true,
+        stdio: ["ignore", "ignore", "pipe"],
+    });
+    child.stderr?.on("data", (chunk) => {
+        streamDeck.logger.warn(`Window lock helper: ${chunk.toString().trim()}`);
+    });
+    child.on("exit", (code) => {
+        streamDeck.logger.info(`Window lock helper exited (code ${code})`);
+        if (helper === child) {
+            helper = null;
+            activeMonitor = null;
+        }
+    });
+    helper = child;
+    activeMonitor = monitor;
+    streamDeck.logger.info(`OnlyT main window lock enabled (monitor=${monitor || "any"})`);
+}
+/** Start, restart or stop the lock helper so it matches the global settings. */
+function applyWindowLockSettings(raw) {
+    const enabled = raw?.lockMainWindow === true;
+    const requested = typeof raw?.lockMonitor === "string" ? raw.lockMonitor : "";
+    const monitor = MONITOR_NAME_PATTERN.test(requested) ? requested : "";
+    if (enabled) {
+        if (helper && activeMonitor === monitor)
+            return;
+        stopHelper();
+        startHelper(monitor);
+        return;
+    }
+    if (helper) {
+        stopHelper();
+        // Give the user their resizable window back straight away.
+        runOnce("Unlock").catch((err) => streamDeck.logger.warn(`Window unlock failed: ${err}`));
+        streamDeck.logger.info("OnlyT main window lock disabled");
+    }
+}
+async function loadWindowLockFromGlobalSettings() {
+    const global = await streamDeck.settings.getGlobalSettings();
+    applyWindowLockSettings(global);
+}
+async function pushMonitorsToPropertyInspector() {
+    const monitors = await listMonitors();
+    await streamDeck.ui.sendToPropertyInspector({
+        event: PI_EVENT_MONITORS,
+        monitors,
+    });
+}
+/** Let property inspectors request the monitor list for the lock dropdown. */
+function registerWindowLockUi() {
+    streamDeck.ui.onDidAppear(() => {
+        void pushMonitorsToPropertyInspector();
+    });
+    streamDeck.ui.onSendToPlugin((ev) => {
+        const payload = ev.payload;
+        if (payload?.event === PI_EVENT_GET_MONITORS) {
+            void pushMonitorsToPropertyInspector();
+        }
+    });
+    // Never leave an orphaned helper behind when the plugin exits.
+    process.on("exit", () => helper?.kill());
+}
+
+// Host / port / API code are plugin-wide (global settings). Any property
+// inspector change arrives here and updates every action at once.
+streamDeck.settings.onDidReceiveGlobalSettings((ev) => {
+    const settings = ev.settings;
+    streamDeck.logger.info(`Global settings received: host=${settings.host}, port=${settings.port}`);
+    applyGlobalSettingsPayload(settings);
+    applyWindowLockSettings(settings);
+});
 streamDeck.actions.registerAction(new TimerControl());
 streamDeck.actions.registerAction(new StartStopOnly());
 streamDeck.actions.registerAction(new ItemTitles());
@@ -10557,3 +10918,6 @@ streamDeck.actions.registerAction(new AddMinute());
 streamDeck.actions.registerAction(new SubtractMinute());
 streamDeck.actions.registerAction(new Bell());
 streamDeck.connect();
+registerWindowLockUi();
+void loadGlobalConnectionSettings();
+void loadWindowLockFromGlobalSettings();

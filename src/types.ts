@@ -9,9 +9,11 @@
  */
 export type DisplayMode = "default" | "dynamic" | "radial";
 
+import type { JsonObject } from "@elgato/utils";
+
 /**
- * OnlyT connection settings shared by every action in the plugin.
- * Individual actions extend this with their own display options.
+ * OnlyT connection (host / port / API code). Stored in Stream Deck GLOBAL
+ * settings and shared by every action - never persisted per action instance.
  */
 export type ConnectionSettings = {
 	host: string;
@@ -29,7 +31,7 @@ export const DEFAULT_CONNECTION: ConnectionSettings = {
  * Per-action-instance settings persisted by Stream Deck for the
  * Timer Control action (full countdown display with mode + title toggle).
  */
-export type TimerSettings = ConnectionSettings & {
+export type TimerSettings = {
 	displayMode: DisplayMode;
 	/** Show the current talk name above the time (Default and Dynamic modes only). */
 	showTitle: boolean;
@@ -38,26 +40,33 @@ export type TimerSettings = ConnectionSettings & {
 };
 
 export const DEFAULT_SETTINGS: TimerSettings = {
-	...DEFAULT_CONNECTION,
 	displayMode: "default",
 	showTitle: true,
 	showStartButton: true,
 };
 
 /**
- * Settings for the "Start & Stop Only" action - connection only, no display options.
+ * Plugin-wide settings persisted via Stream Deck global settings.
+ * `connectionMigrated` marks that legacy per-action values were merged in.
  */
-export type StartStopSettings = ConnectionSettings;
+export type PluginGlobalSettings = {
+	host?: string;
+	port?: number | string;
+	apiCode?: string;
+	connectionMigrated?: boolean;
+	/** Stop the user resizing the OnlyT main window and keep it on `lockMonitor`. */
+	lockMainWindow?: boolean;
+	/** Windows display device name (e.g. `\\.\DISPLAY2`) the main window is kept on. */
+	lockMonitor?: string;
+};
 
 /**
- * Settings for the "Item Titles Only" action - connection only, no display options.
+ * Actions with no instance options of their own (connection is global).
  */
-export type ItemTitlesSettings = ConnectionSettings;
-
-/**
- * Settings for the "Add Minute" and "Subtract Minute" actions - connection only.
- */
-export type AdjustTimeSettings = ConnectionSettings;
+export type EmptyActionSettings = JsonObject;
+export type StartStopSettings = EmptyActionSettings;
+export type ItemTitlesSettings = EmptyActionSettings;
+export type AdjustTimeSettings = EmptyActionSettings;
 
 /**
  * GET /api/v4/timers/ response shape from OnlyT.
