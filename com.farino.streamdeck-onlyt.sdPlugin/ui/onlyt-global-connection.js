@@ -39,7 +39,7 @@
 		'<div class="sdpi-heading">OnlyT window (all actions)</div>' +
 		'<div class="sdpi-item sdpi-item-checkbox"><label for="onlytLockWindow">Lock window</label>' +
 		'<input type="checkbox" id="onlytLockWindow" /></div>' +
-		'<div class="sdpi-hint">Size and place the OnlyT control window first, then tick Lock: the user can no longer resize or move it. If a monitor is chosen below, the window is placed on it first. Only works while Stream Deck is running and OnlyT is not run as administrator.</div>' +
+		'<div class="sdpi-hint">Size and place the OnlyT control window first, then tick Lock: the user can no longer resize, move or minimise it. If a monitor is chosen below, the window is placed on it first. Only works while Stream Deck is running and OnlyT is not run as administrator.</div>' +
 		'<div class="sdpi-item"><label for="onlytLockMonitor">Monitor</label>' +
 		'<select id="onlytLockMonitor"><option value="">Any monitor (lock size only)</option></select></div>' +
 		'<div class="sdpi-item"><label for="onlytLockScreenNo">Screen no.</label>' +

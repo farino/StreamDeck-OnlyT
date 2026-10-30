@@ -1,6 +1,6 @@
 {
 	"name": "com.farino.streamdeck-onlyt",
-	"version": "1.6.2",
+	"version": "1.6.3",
 	"description": "Elgato Stream Deck plugin to control the OnlyT meeting timer.",
 	"author": "Farino",
 	"license": "MIT",

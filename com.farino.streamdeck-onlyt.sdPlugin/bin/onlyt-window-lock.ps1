@@ -4,9 +4,11 @@
   Modes:
     List    Print the connected monitors as JSON.
     Lock    Run until stopped. Locks the OnlyT main window so the user can
-            neither resize nor move it:
-              - removes the resize/maximise styles and the Move/Size/Maximize
-                system-menu commands (no title-bar drag, no Alt+Space move);
+            neither resize, move nor minimise it:
+              - removes the resize/maximise/minimise styles and the
+                Move/Size/Minimize/Maximize system-menu commands (no title-bar
+                drag, no Alt+Space move, no minimise button);
+              - restores the window if something minimises it anyway;
               - remembers the position the window has when the lock starts
                 (the admin's chosen spot) and snaps it back if anything moves it;
               - optionally keeps it inside one monitor.
@@ -55,7 +57,8 @@ Add-Type -AssemblyName System.Windows.Forms
 $GWL_STYLE = -16
 $WS_THICKFRAME = 0x00040000
 $WS_MAXIMIZEBOX = 0x00010000
-$LOCK_MASK = $WS_THICKFRAME -bor $WS_MAXIMIZEBOX
+$WS_MINIMIZEBOX = 0x00020000
+$LOCK_MASK = $WS_THICKFRAME -bor $WS_MAXIMIZEBOX -bor $WS_MINIMIZEBOX
 # NOMOVE | NOSIZE | NOZORDER | NOACTIVATE | FRAMECHANGED
 $SWP_STYLE_REFRESH = 0x0001 -bor 0x0002 -bor 0x0004 -bor 0x0010 -bor 0x0020
 # NOZORDER | NOACTIVATE
@@ -64,6 +67,7 @@ $SWP_NOSIZE = 0x0001
 # System-menu commands that let the user resize, move or maximise a window.
 $SC_SIZE = 0xF000
 $SC_MOVE = 0xF010
+$SC_MINIMIZE = 0xF020
 $SC_MAXIMIZE = 0xF030
 
 # Position each OnlyT window had when the lock started (the admin's chosen spot).
@@ -96,7 +100,7 @@ function Set-MoveLock([IntPtr]$hwnd, [bool]$locked) {
 		# Deleting Move/Size from the system menu stops title-bar dragging and Alt+Space moving.
 		$menu = [OnlyTWin]::GetSystemMenu($hwnd, $false)
 		if ($menu -ne [IntPtr]::Zero) {
-			foreach ($cmd in @($SC_SIZE, $SC_MOVE, $SC_MAXIMIZE)) {
+			foreach ($cmd in @($SC_SIZE, $SC_MOVE, $SC_MINIMIZE, $SC_MAXIMIZE)) {
 				[void][OnlyTWin]::DeleteMenu($menu, [uint32]$cmd, 0)
 			}
 		}
@@ -113,9 +117,10 @@ function Get-TargetScreen([string]$deviceName) {
 
 # Hold the window at its anchored position (kept inside $screen when one is chosen).
 function Update-WindowPosition([IntPtr]$hwnd, $screen) {
-	if ([OnlyTWin]::IsIconic($hwnd)) { return }
-
-	if ([OnlyTWin]::IsZoomed($hwnd)) { [void][OnlyTWin]::ShowWindow($hwnd, 9) }  # SW_RESTORE
+	# Backstop for Win+D, Win+M, taskbar clicks etc.: bring a minimised/maximised window back (SW_RESTORE).
+	if ([OnlyTWin]::IsIconic($hwnd) -or [OnlyTWin]::IsZoomed($hwnd)) {
+		[void][OnlyTWin]::ShowWindow($hwnd, 9)
+	}
 
 	$r = New-Object OnlyTWin+RECT
 	if (-not [OnlyTWin]::GetWindowRect($hwnd, [ref]$r)) { return }
