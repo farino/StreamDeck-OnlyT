@@ -31,7 +31,7 @@ export class TimerControl extends BaseOnlyTAction<TimerSettings> {
 	protected override mergeSettings(
 		persisted: Partial<TimerSettings> | undefined,
 	): TimerSettings {
-		return { ...DEFAULT_SETTINGS, ...(persisted ?? {}) };
+		return { ...DEFAULT_SETTINGS, ...super.mergeSettings(persisted) };
 	}
 
 	protected renderState(state: ParsedTimerState, settings: TimerSettings): string {

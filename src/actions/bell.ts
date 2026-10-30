@@ -6,7 +6,7 @@ import streamDeck, {
 import { BaseOnlyTAction } from "./base-onlyt-action";
 import { renderBellGlyph } from "../utils/svg-renderer";
 import {
-	type ConnectionSettings,
+	type EmptyActionSettings,
 	type ParsedTimerState,
 } from "../types";
 
@@ -17,17 +17,17 @@ import {
  * the API still returns success when the bell is disabled.
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.bell" })
-export class Bell extends BaseOnlyTAction<ConnectionSettings> {
+export class Bell extends BaseOnlyTAction<EmptyActionSettings> {
 	protected renderState(
 		_state: ParsedTimerState,
-		_settings: ConnectionSettings,
+		_settings: EmptyActionSettings,
 	): string {
 		return renderBellGlyph();
 	}
 
 	protected override async onKeyPress(
 		_state: ParsedTimerState,
-		ev: KeyDownEvent<ConnectionSettings>,
+		ev: KeyDownEvent<EmptyActionSettings>,
 	): Promise<void> {
 		if (!this.client) return;
 

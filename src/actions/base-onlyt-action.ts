@@ -6,16 +6,25 @@ import streamDeck, {
 	type DidReceiveSettingsEvent,
 } from "@elgato/streamdeck";
 
-import { OnlyTClient } from "../services/onlyt-client";
+import type { JsonObject } from "@elgato/utils";
+
+import type { OnlyTClient } from "../services/onlyt-client";
+import {
+	getOnlyTClient,
+	onPluginConnectionChanged,
+} from "../services/plugin-connection";
+import { registerLegacyConnection } from "../services/global-connection";
+import {
+	hasLegacyConnectionFields,
+	stripConnectionFields,
+} from "../utils/connection-settings";
 import { renderOffline, renderConnecting } from "../utils/svg-renderer";
 // #region agent log
 import { debugLog } from "../utils/debug-logger";
 // #endregion
 import {
-	type ConnectionSettings,
 	type TimersResponse,
 	type ParsedTimerState,
-	DEFAULT_CONNECTION,
 	parseTimeSpan,
 } from "../types";
 
@@ -28,8 +37,9 @@ const POLL_INTERVAL_MS = 200;
  *
  * Multiple visible instances of the same action are supported: each keeps
  * its own settings (e.g. display mode) and is rendered independently.
- * Connection settings from the most recently configured instance drive the
- * shared OnlyT client.
+ * Host / port / API code are NOT per instance: they live in Stream Deck
+ * global settings and drive one shared OnlyT client (plugin-connection).
+ * Legacy per-instance values are migrated to global settings, then removed.
  *
  * Subclasses provide two things:
  *  - `renderState(state, settings)` - returns the SVG string for the current
@@ -38,14 +48,18 @@ const POLL_INTERVAL_MS = 200;
  *    latest parsed state and the raw event. Default is a no-op so
  *    display-only actions (e.g. "Item Titles Only") don't have to override.
  *
- * `ConnectionSettings` is the minimum shape a subclass's settings type must
- * satisfy; subclasses are free to extend it with additional fields (e.g.
- * `TimerSettings` adds `displayMode` and `showTitle`).
+ * Subclasses' settings types hold only per-instance options (e.g.
+ * `TimerSettings`: `displayMode`, `showTitle`).
  */
 export abstract class BaseOnlyTAction<
-	S extends ConnectionSettings,
+	S extends JsonObject,
 > extends SingletonAction<S> {
-	protected client: OnlyTClient | null = null;
+	/** Shared OnlyT client driven by the plugin-wide global connection. */
+	protected get client(): OnlyTClient {
+		return getOnlyTClient();
+	}
+
+	private connectionListenerDispose: (() => void) | null = null;
 	protected pollTimer: NodeJS.Timeout | null = null;
 	protected cachedState: ParsedTimerState | null = null;
 	protected isOnline = false;
@@ -53,16 +67,21 @@ export abstract class BaseOnlyTAction<
 	protected lastRenderedSvgById = new Map<string, string>();
 	/** Per-instance settings, keyed by action context id. */
 	protected instanceSettings = new Map<string, S>();
-	/** Connection settings used by the shared OnlyT client. */
-	protected settings: S = { ...(DEFAULT_CONNECTION as S) };
 
 	override async onWillAppear(ev: WillAppearEvent<S>): Promise<void> {
 		streamDeck.logger.info(`${this.constructor.name}.onWillAppear fired`);
 
 		const settings = this.mergeSettings(ev.payload.settings);
 		this.instanceSettings.set(ev.action.id, settings);
-		this.applyConnectionSettings(settings);
+		this.migrateLegacyConnection(ev.action, ev.payload.settings);
 		this.lastRenderedSvgById.delete(ev.action.id);
+
+		if (!this.connectionListenerDispose) {
+			this.connectionListenerDispose = onPluginConnectionChanged(() => {
+				this.lastRenderedSvgById.clear();
+				void this.refresh();
+			});
+		}
 
 		await ev.action.setImage(`data:image/svg+xml,${encodeURIComponent(renderConnecting())}`);
 		await ev.action.setTitle("");
@@ -87,17 +106,19 @@ export abstract class BaseOnlyTAction<
 		// polling only when no instances of this action remain visible.
 		if ([...this.actions].length === 0) {
 			this.stopPolling();
+			if (this.connectionListenerDispose) {
+				this.connectionListenerDispose();
+				this.connectionListenerDispose = null;
+			}
 		}
 	}
 
 	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<S>): Promise<void> {
 		const settings = this.mergeSettings(ev.payload.settings);
-		streamDeck.logger.info(
-			`${this.constructor.name} settings updated: host=${settings.host}, port=${settings.port}`,
-		);
+		streamDeck.logger.info(`${this.constructor.name} settings updated`);
 
 		this.instanceSettings.set(ev.action.id, settings);
-		this.applyConnectionSettings(settings);
+		this.migrateLegacyConnection(ev.action, ev.payload.settings);
 		this.lastRenderedSvgById.delete(ev.action.id);
 
 		await this.refresh();
@@ -153,7 +174,24 @@ export abstract class BaseOnlyTAction<
 	 * Subclasses that need to layer their own defaults can override this.
 	 */
 	protected mergeSettings(persisted: Partial<S> | undefined): S {
-		return { ...(DEFAULT_CONNECTION as S), ...(persisted ?? {}) } as S;
+		return stripConnectionFields({ ...(persisted ?? {}) }) as unknown as S;
+	}
+
+	/**
+	 * If this instance still stores host/port/API code from an older version,
+	 * vote it into the global connection and, once migrated, remove it here.
+	 */
+	private migrateLegacyConnection(
+		action: { setSettings(settings: JsonObject): Promise<void> },
+		raw: Partial<S> | undefined,
+	): void {
+		const record = raw as Record<string, unknown> | undefined;
+		if (!record || !hasLegacyConnectionFields(record)) return;
+
+		const stripped = stripConnectionFields({ ...record }) as JsonObject;
+		registerLegacyConnection(record, () => {
+			void action.setSettings(stripped);
+		});
 	}
 
 	/**
@@ -183,18 +221,7 @@ export abstract class BaseOnlyTAction<
 		await this.pollAll();
 	}
 
-	private applyConnectionSettings(settings: S): void {
-		this.settings = settings;
-		if (this.client) {
-			this.client.updateConnection(settings.host, settings.port, settings.apiCode);
-		} else {
-			this.client = new OnlyTClient(settings.host, settings.port, settings.apiCode);
-		}
-	}
-
 	private async pollAll(): Promise<void> {
-		if (!this.client) return;
-
 		const data = await this.client.getTimers();
 
 		if (!data) {

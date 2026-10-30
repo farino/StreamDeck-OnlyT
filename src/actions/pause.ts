@@ -10,7 +10,7 @@ import {
 	renderEndOfMeeting,
 } from "../utils/svg-renderer";
 import {
-	type ConnectionSettings,
+	type EmptyActionSettings,
 	type ParsedTimerState,
 } from "../types";
 
@@ -23,10 +23,10 @@ import {
  * shows an alert until OnlyT adds a pause endpoint.
  */
 @action({ UUID: "com.farino.streamdeck-onlyt.pause" })
-export class Pause extends BaseOnlyTAction<ConnectionSettings> {
+export class Pause extends BaseOnlyTAction<EmptyActionSettings> {
 	protected renderState(
 		state: ParsedTimerState,
-		_settings: ConnectionSettings,
+		_settings: EmptyActionSettings,
 	): string {
 		if (state.currentTalkId === 0) {
 			return renderEndOfMeeting();
@@ -39,7 +39,7 @@ export class Pause extends BaseOnlyTAction<ConnectionSettings> {
 
 	protected override async onKeyPress(
 		state: ParsedTimerState,
-		ev: KeyDownEvent<ConnectionSettings>,
+		ev: KeyDownEvent<EmptyActionSettings>,
 	): Promise<void> {
 		if (!this.client) return;
 
