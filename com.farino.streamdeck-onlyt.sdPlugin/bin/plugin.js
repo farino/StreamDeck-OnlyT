@@ -10,7 +10,7 @@ import require$$0 from 'zlib';
 import require$$0$1 from 'buffer';
 import require$$2 from 'util';
 import fs, { existsSync, readFileSync } from 'node:fs';
-import path, { join } from 'node:path';
+import path, { join, dirname } from 'node:path';
 import { cwd } from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'fs';
@@ -9651,7 +9651,8 @@ const COLOURS = {
     playIcon: "#00b894",
     timeGreen: "#00d967",
     timeOrange: "#f5a623",
-    timeRed: "#ff4d4d",
+    /** Overtime counter, radial ring, stop glyph, offline label — shared brand red. */
+    overtimeRed: "#e42322",
     // Deeper, more saturated red used specifically for the Dynamic-mode
     // overtime fill so it reads as a genuine "you have gone over" alarm
     // instead of the paler text-friendly `timeRed`.
@@ -9798,10 +9799,13 @@ function renderDynamicTitle(text, fontSize, centreY, prevFillTop, currFillTop) {
     return (dynamicText(lines[0], 72, y1, fontSize, prevFillTop, currFillTop) +
         dynamicText(lines[1], 72, y2, fontSize, prevFillTop, currFillTop));
 }
+// Timer Control — optional item title above the countdown (Default / Dynamic / Radial).
+const TIMER_TITLE_FONT_SIZE = 19;
+const TIMER_TITLE_CENTRE_Y = 28;
 /**
  * Render the "ready / stopped" state.
  * Shows the current talk name (optional), its predefined duration, and
- * optionally a play triangle + START label. Pass `showTitle=false` to omit
+ * optionally a centred play triangle. Pass `showTitle=false` to omit
  * the title; pass `showStartButton=false` to omit the play cue — both used
  * by the Timer Control action's display toggles.
  */
@@ -9809,15 +9813,11 @@ function renderReady(talkName, durationSecs, showTitle = true, showStartButton =
     const name = talkName || "Ready";
     const time = formatTime(durationSecs);
     return wrapSvg(`
-		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
+		${showTitle ? renderTitle(name, TIMER_TITLE_FONT_SIZE, COLOURS.textPrimary, TIMER_TITLE_CENTRE_Y) : ""}
 		<text x="72" y="88" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="38" font-weight="bold" fill="${COLOURS.textPrimary}">${time}</text>
 		${showStartButton ? `
-		<g transform="translate(72,120)">
-			<polygon points="-46,-18 -46,18 -10,0" fill="${COLOURS.timeGreen}"/>
-			<text x="0" y="7" text-anchor="start" font-family="Arial,sans-serif"
-				font-size="18" font-weight="bold" fill="${COLOURS.textSecondary}">START</text>
-		</g>` : ""}
+		<polygon points="48,102 48,138 96,120" fill="${COLOURS.timeGreen}"/>` : ""}
 	`);
 }
 /**
@@ -9833,7 +9833,7 @@ function renderRunning(talkName, remainingSecs, closingSecs, showTitle = true) {
     const isClosing = !isOvertime && remainingSecs <= closingSecs;
     let colour;
     if (isOvertime) {
-        colour = COLOURS.timeRed;
+        colour = COLOURS.overtimeRed;
     }
     else if (isClosing) {
         colour = COLOURS.timeOrange;
@@ -9846,7 +9846,7 @@ function renderRunning(talkName, remainingSecs, closingSecs, showTitle = true) {
         ? `+${formatTime(Math.abs(remainingSecs))}`
         : formatTime(remainingSecs);
     return wrapSvg(`
-		${showTitle ? renderTitle(name, 16, COLOURS.textPrimary, 28) : ""}
+		${showTitle ? renderTitle(name, TIMER_TITLE_FONT_SIZE, COLOURS.textPrimary, TIMER_TITLE_CENTRE_Y) : ""}
 		<text x="72" y="92" text-anchor="middle" font-family="Arial,sans-serif"
 			font-size="40" font-weight="bold" fill="${colour}">${displayTime}</text>
 	`);
@@ -9907,7 +9907,7 @@ function renderRunningDynamic(talkName, remainingSecs, targetSecs, showTitle = t
         `</rect>`;
     return wrapSvg(`
 		${fillRect}
-		${showTitle ? renderDynamicTitle(name, 16, 28, prevY, currY) : ""}
+		${showTitle ? renderDynamicTitle(name, TIMER_TITLE_FONT_SIZE, TIMER_TITLE_CENTRE_Y, prevY, currY) : ""}
 		${dynamicText(displayTime, 72, 92, 40, prevY, currY)}
 	`);
 }
@@ -9966,7 +9966,7 @@ function renderRunningRadial(_talkName, remainingSecs, targetSecs) {
     const safeTarget = targetSecs > 0 ? targetSecs : 1;
     let colour;
     if (isOvertime) {
-        colour = COLOURS.dynamicRed;
+        colour = COLOURS.overtimeRed;
     }
     else if (remainingSecs <= safeTarget / 2) {
         colour = COLOURS.timeOrange;
@@ -10032,26 +10032,6 @@ function renderRunningRadial(_talkName, remainingSecs, targetSecs) {
 	`);
 }
 /**
- * Render the "offline" state when OnlyT is unreachable.
- * Shows a warning triangle above a two-line "OnlyT / Offline" cascade.
- */
-function renderOffline() {
-    return wrapSvg(`
-		<path d="M 72 12 L 96 46 L 48 46 Z" fill="none" stroke="${COLOURS.timeRed}"
-			stroke-width="3" stroke-linejoin="round"/>
-		<line x1="72" y1="24" x2="72" y2="36" stroke="${COLOURS.timeRed}"
-			stroke-width="3" stroke-linecap="round"/>
-		<circle cx="72" cy="42" r="1.8" fill="${COLOURS.timeRed}"/>
-		<text x="72" y="80" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="22" font-weight="bold" fill="${COLOURS.textPrimary}">OnlyT</text>
-		<text x="72" y="112" text-anchor="middle" font-family="Arial,sans-serif"
-			font-size="22" font-weight="bold" fill="${COLOURS.timeRed}">
-			Offline
-			<animate attributeName="opacity" values="1;0.3;1" dur="1.8s" repeatCount="indefinite"/>
-		</text>
-	`);
-}
-/**
  * Render the "connecting" state shown on first appearance.
  */
 function renderConnecting() {
@@ -10110,7 +10090,7 @@ function renderPlayGlyph() {
 function renderStopGlyph() {
     return wrapSvg(`
 		${onlyTBrandLabel()}
-		<rect x="46" y="56" width="56" height="56" rx="6" fill="${COLOURS.timeRed}"/>
+		<rect x="46" y="56" width="56" height="56" rx="6" fill="${COLOURS.overtimeRed}"/>
 	`);
 }
 /**
@@ -10157,6 +10137,18 @@ function renderBellGlyph() {
 const TITLE_ONLY_MAX_CHARS_PER_LINE = 11;
 const TITLE_ONLY_FONT_SIZE = 28;
 const TITLE_ONLY_LINE_HEIGHT = 32;
+/** Smaller type when the talk name wraps or runs long (e.g. Congregation Bible Study). */
+function titleOnlyMetrics(lines) {
+    const count = lines.length;
+    const maxLen = Math.max(...lines.map((l) => l.length), 0);
+    if (count >= 3 || maxLen > 12) {
+        return { fontSize: 21, lineHeight: 25 };
+    }
+    if (count >= 2 || maxLen > 10) {
+        return { fontSize: 24, lineHeight: 28 };
+    }
+    return { fontSize: TITLE_ONLY_FONT_SIZE, lineHeight: TITLE_ONLY_LINE_HEIGHT };
+}
 /**
  * Word-wrap a title into up to 3 lines for the "Item Titles Only" action.
  * Prefers word boundaries; falls back to a hard split for a single very
@@ -10195,29 +10187,68 @@ function splitTitleThreeLines(text) {
         : l);
 }
 /**
+ * Short labels for long OnlyT talk names on the Item Titles key only.
+ */
+function abbreviateItemTitle(title) {
+    const key = title.trim().toLowerCase().replace(/\s+/g, " ");
+    if (key === "congregation bible study") {
+        return "CBS";
+    }
+    return title.trim();
+}
+/**
  * Render the current talk title as large white text, vertically centred and
  * wrapped over up to 3 lines. Used by the "Item Titles Only" action - no
  * time, no controls, just the name.
  */
 function renderTitleOnly(talkName) {
-    const name = (talkName ?? "").trim();
+    const name = abbreviateItemTitle(talkName ?? "");
     if (!name) {
         return wrapSvg(`
 			<text x="72" y="80" text-anchor="middle" font-family="Arial,sans-serif"
 				font-size="20" font-weight="bold" fill="${COLOURS.textSecondary}">No talk</text>
 		`);
     }
-    const lines = splitTitleThreeLines(name);
+    const lines = splitTitleThreeLines(name).filter((l) => l.length > 0);
+    const { fontSize, lineHeight } = titleOnlyMetrics(lines);
     // Vertically centre the block around y=72.
-    const blockHeight = (lines.length - 1) * TITLE_ONLY_LINE_HEIGHT;
-    const firstBaselineY = 72 - blockHeight / 2 + TITLE_ONLY_FONT_SIZE / 3;
+    const blockHeight = (lines.length - 1) * lineHeight;
+    const firstBaselineY = 72 - blockHeight / 2 + fontSize / 3;
     const textElements = lines
         .map((line, i) => {
-        const y = firstBaselineY + i * TITLE_ONLY_LINE_HEIGHT;
-        return `<text x="72" y="${y.toFixed(2)}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${TITLE_ONLY_FONT_SIZE}" font-weight="bold" fill="${COLOURS.textPrimary}">${escXml(line)}</text>`;
+        const y = firstBaselineY + i * lineHeight;
+        return `<text x="72" y="${y.toFixed(2)}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="bold" fill="${COLOURS.textPrimary}">${escXml(line)}</text>`;
     })
         .join("");
     return wrapSvg(textElements);
+}
+
+function pluginRootDir() {
+    const binDir = dirname(process.argv[1] ?? "");
+    return join(binDir, "..");
+}
+const TILES_DIR = join(pluginRootDir(), "imgs", "tiles");
+const cache = new Map();
+function loadTile(fileName) {
+    const cached = cache.get(fileName);
+    if (cached)
+        return cached;
+    const pngPath = join(TILES_DIR, `${fileName}.png`);
+    const svgPath = join(TILES_DIR, `${fileName}.svg`);
+    if (existsSync(pngPath)) {
+        const uri = `data:image/png;base64,${readFileSync(pngPath).toString("base64")}`;
+        cache.set(fileName, uri);
+        return uri;
+    }
+    if (existsSync(svgPath)) {
+        const uri = `data:image/svg+xml,${encodeURIComponent(readFileSync(svgPath, "utf8"))}`;
+        cache.set(fileName, uri);
+        return uri;
+    }
+    throw new Error(`Tile image not found: ${fileName} in ${TILES_DIR}`);
+}
+function tileImage(name) {
+    return loadTile(name);
 }
 
 const POLL_INTERVAL_MS = 200;
@@ -10440,14 +10471,17 @@ class BaseOnlyTAction extends SingletonAction {
      * own settings so display modes can differ per key.
      */
     async updateAllActions(state) {
+        const offlineImage = state === null ? tileImage("Offline") : null;
         for (const a of this.actions) {
             const settings = this.instanceSettings.get(a.id) ?? this.mergeSettings(undefined);
-            const svg = state === null ? renderOffline() : this.renderState(state, settings);
-            if (svg === this.lastRenderedSvgById.get(a.id)) {
+            const renderKey = state === null ? offlineImage : this.renderState(state, settings);
+            if (renderKey === this.lastRenderedSvgById.get(a.id)) {
                 continue;
             }
-            this.lastRenderedSvgById.set(a.id, svg);
-            const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+            this.lastRenderedSvgById.set(a.id, renderKey);
+            const encoded = state === null
+                ? offlineImage
+                : `data:image/svg+xml,${encodeURIComponent(renderKey)}`;
             await a.setImage(encoded);
             await a.setTitle("");
         }

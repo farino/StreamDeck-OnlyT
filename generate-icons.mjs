@@ -82,6 +82,17 @@ for (const { src, out, w, h, transparent } of outputs) {
 	console.log(`Created ${out} (${w}x${h})`);
 }
 
+const offlineSvg = join(SD_PLUGIN, "imgs", "tiles", "Offline.svg");
+const offlinePng = join(SD_PLUGIN, "imgs", "tiles", "Offline.png");
+if (existsSync(offlineSvg)) {
+	ensureDir(offlinePng);
+	await sharp(readFileSync(offlineSvg))
+		.resize(144, 144)
+		.png({ compressionLevel: 9 })
+		.toFile(offlinePng);
+	console.log(`Created ${offlinePng} (144x144) from Offline.svg`);
+}
+
 console.log("\nDone. All PNG icons regenerated from assets/icons/*.png.");
 
 // -----------------------------------------------------------------------------

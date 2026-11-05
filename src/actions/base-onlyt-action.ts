@@ -18,7 +18,8 @@ import {
 	hasLegacyConnectionFields,
 	stripConnectionFields,
 } from "../utils/connection-settings";
-import { renderOffline, renderConnecting } from "../utils/svg-renderer";
+import { renderConnecting } from "../utils/svg-renderer";
+import { tileImage } from "../utils/tile-images";
 // #region agent log
 import { debugLog } from "../utils/debug-logger";
 // #endregion
@@ -289,16 +290,22 @@ export abstract class BaseOnlyTAction<
 	 * own settings so display modes can differ per key.
 	 */
 	private async updateAllActions(state: ParsedTimerState | null): Promise<void> {
+		const offlineImage = state === null ? tileImage("Offline") : null;
+
 		for (const a of this.actions) {
 			const settings = this.instanceSettings.get(a.id) ?? this.mergeSettings(undefined);
-			const svg = state === null ? renderOffline() : this.renderState(state, settings);
+			const renderKey =
+				state === null ? offlineImage! : this.renderState(state, settings);
 
-			if (svg === this.lastRenderedSvgById.get(a.id)) {
+			if (renderKey === this.lastRenderedSvgById.get(a.id)) {
 				continue;
 			}
-			this.lastRenderedSvgById.set(a.id, svg);
+			this.lastRenderedSvgById.set(a.id, renderKey);
 
-			const encoded = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+			const encoded =
+				state === null
+					? offlineImage!
+					: `data:image/svg+xml,${encodeURIComponent(renderKey)}`;
 			await a.setImage(encoded);
 			await a.setTitle("");
 		}
